@@ -9,6 +9,7 @@ import org.ledat.enchantMaterial.booster.Booster;
 import org.ledat.enchantMaterial.booster.BoosterManager;
 import org.ledat.enchantMaterial.booster.BoosterStorage;
 import org.ledat.enchantMaterial.gui.LevelRewardsGUI;
+import org.ledat.enchantMaterial.gui.RebirthConfigEditorGUI;
 import org.ledat.enchantMaterial.gui.RebirthGUI;
 import org.ledat.enchantMaterial.listeners.PlayerQuitListener;
 import org.ledat.enchantMaterial.rebirth.RebirthManager;
@@ -43,6 +44,7 @@ public class EnchantMaterial extends JavaPlugin {
 
     private RebirthManager rebirthManager;
     private RebirthGUI rebirthGUI;
+    private RebirthConfigEditorGUI rebirthConfigEditorGUI;
 
     // ===== PvP API Hook (không cần compileOnly) =====
     private static final String BVP_META = "ledat.baovepvp.protected";
@@ -132,7 +134,9 @@ public class EnchantMaterial extends JavaPlugin {
         // THÊM PHẦN NÀY: Initialize Rebirth system
         rebirthManager = new RebirthManager(this);
         rebirthGUI = new RebirthGUI(this, rebirthManager);
+        rebirthConfigEditorGUI = new RebirthConfigEditorGUI(this, rebirthManager);
         getServer().getPluginManager().registerEvents(rebirthGUI, this);
+        getServer().getPluginManager().registerEvents(rebirthConfigEditorGUI, this);
         getLogger().info("Rebirth system has been initialized!");
 
         regionManager = new RegionManager(this);
@@ -442,4 +446,5 @@ public class EnchantMaterial extends JavaPlugin {
     
     public RebirthManager getRebirthManager() { return rebirthManager; }
     public RebirthGUI getRebirthGUI() { return rebirthGUI; }
+    public RebirthConfigEditorGUI getRebirthConfigEditorGUI() { return rebirthConfigEditorGUI; }
 }

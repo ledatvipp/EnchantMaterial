@@ -46,7 +46,7 @@ public class CommandManager implements CommandExecutor {
                 return handleGiveCommand(sender, args);
             case "chuyensinh":
             case "rebirth":
-                return handleRebirthCommand(sender);
+                return handleRebirthCommand(sender, args);
             case "permbooster":
                 return handlePermissionBooster(sender, args);
             case "admin":
@@ -580,13 +580,24 @@ public class CommandManager implements CommandExecutor {
         }
     }
 
-    private boolean handleRebirthCommand(CommandSender sender) {
+    private boolean handleRebirthCommand(CommandSender sender, String[] args) {
         if (!(sender instanceof Player)) {
             sender.sendMessage("§c✗ Chỉ người chơi mới có thể sử dụng lệnh này!");
             return true;
         }
-        
+
         Player player = (Player) sender;
+
+        if (args.length >= 2 && args[1].equalsIgnoreCase("edit")) {
+            if (!sender.hasPermission("enchantmaterial.admin")) {
+                sender.sendMessage(ConfigManager.getMessage("no_permission"));
+                return true;
+            }
+
+            EnchantMaterial.getInstance().getRebirthConfigEditorGUI().openLevelSelector(player);
+            return true;
+        }
+
         EnchantMaterial.getInstance().getRebirthGUI().openGUI(player);
         return true;
     }
@@ -812,15 +823,17 @@ public class CommandManager implements CommandExecutor {
         sender.sendMessage("§6=== EnchantMaterial Commands ===");
         sender.sendMessage("§e/enchantmaterial level §7- Xem thông tin cấp độ");
         sender.sendMessage("§e/enchantmaterial permbooster [player] §7- Xem permission booster");
-    
+        sender.sendMessage("§e/enchantmaterial rebirth §7- Mở GUI chuyển sinh");
+
         if (sender.hasPermission("enchantmaterial.admin")) {
             sender.sendMessage("§e/enchantmaterial add <enchant> <level> §7- Thêm enchant vào tool");
             sender.sendMessage("§e/enchantmaterial reload §7- Tải lại config");
             sender.sendMessage("§e/enchantmaterial booster §7- Quản lý booster");
             sender.sendMessage("§e/enchantmaterial give <player> <type> <amount> §7- Cấp level/points cho người chơi");
             sender.sendMessage("§e/enchantmaterial admin §7- Lệnh admin");
+            sender.sendMessage("§e/enchantmaterial rebirth edit §7- Chỉnh sửa cấu hình chuyển sinh");
         }
-    
+
         sender.sendMessage("§e/enchantmaterial rewards §7- Mở GUI phần thưởng level");
     }
 }
