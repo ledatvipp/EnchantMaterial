@@ -17,14 +17,6 @@ repositories {
         url = "https://oss.sonatype.org/content/groups/public/"
     }
     maven {
-        name = "egine"
-        url = "https://maven.enginehub.org/repo/"
-    }
-    maven {
-        name = "mmoitems"
-        url = "https://nexus.Indyuce.com/repository/maven-public/"
-    }
-    maven {
         name = "papi"
         url = "https://repo.extendedclip.com/releases/"
     }
