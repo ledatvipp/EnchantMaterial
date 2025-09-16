@@ -141,7 +141,8 @@ public class RebirthGUI implements Listener {
         String borderName = ChatColor.translateAlternateColorCodes('&', 
                 rebirthManager.getConfig().getString("rebirth.gui.border.name", " "));
         
-        ItemStack border = new ItemStack(Material.valueOf(borderMaterial));
+        Material borderType = resolveMaterial(borderMaterial, "rebirth.gui.border.material");
+        ItemStack border = new ItemStack(borderType);
         ItemMeta borderMeta = border.getItemMeta();
         if (borderMeta != null) {
             borderMeta.setDisplayName(borderName);
@@ -447,19 +448,20 @@ public class RebirthGUI implements Listener {
     }
     
     private int getItemAmount(Player player, String material) {
+        Material targetMaterial = resolveMaterial(material, "getItemAmount");
         int total = 0;
         for (ItemStack item : player.getInventory().getContents()) {
-            if (item != null && item.getType() == Material.valueOf(material)) {
+            if (item != null && item.getType() == targetMaterial) {
                 total += item.getAmount();
             }
         }
         return total;
     }
-    
+
     private String createProgressBar(double current, double max, int length, char filledChar, char emptyChar, String filledColor, String emptyColor) {
         double percentage = current / max;
         int filledLength = (int) (length * percentage);
-        
+
         StringBuilder bar = new StringBuilder();
         bar.append(filledColor);
         for (int i = 0; i < filledLength; i++) {
@@ -469,10 +471,25 @@ public class RebirthGUI implements Listener {
         for (int i = filledLength; i < length; i++) {
             bar.append(emptyChar);
         }
-        
+
         return bar.toString();
     }
-    
+
+    private Material resolveMaterial(String materialName, String context) {
+        if (materialName == null || materialName.trim().isEmpty()) {
+            plugin.getLogger().warning("Material not specified for " + context + ". Defaulting to STONE.");
+            return Material.STONE;
+        }
+
+        Material matchedMaterial = Material.matchMaterial(materialName.trim());
+        if (matchedMaterial == null) {
+            plugin.getLogger().warning("Invalid material '" + materialName + "' for " + context + ". Defaulting to STONE.");
+            return Material.STONE;
+        }
+
+        return matchedMaterial;
+    }
+
     private void addInfoItem(Inventory gui, Player player, RebirthData rebirthData, PlayerData playerData) {
         // SỬA: Thêm "rebirth." vào đầu path
         if (!rebirthManager.getConfig().contains("rebirth.gui.info-item")) return;
@@ -518,7 +535,8 @@ public class RebirthGUI implements Listener {
     }
     
     private ItemStack createItem(String material, String name, List<String> lore, Player player, Integer level) {
-        ItemStack item = new ItemStack(Material.valueOf(material.toUpperCase()));
+        Material itemMaterial = resolveMaterial(material, "createItem");
+        ItemStack item = new ItemStack(itemMaterial);
         ItemMeta meta = item.getItemMeta();
         
         if (meta != null) {
@@ -771,7 +789,8 @@ public class RebirthGUI implements Listener {
                 String material = (String) itemMap.get("material");
                 int amount = (Integer) itemMap.get("amount");
                 
-                if (!player.getInventory().containsAtLeast(new ItemStack(org.bukkit.Material.valueOf(material)), amount)) {
+                Material requirementMaterial = resolveMaterial(material, path + ".required-items");
+                if (!player.getInventory().containsAtLeast(new ItemStack(requirementMaterial), amount)) {
                     player.sendMessage("§c✗ Bạn cần " + amount + "x " + formatMaterialName(material) + " để chuyển sinh!");
                     return;
                 }
