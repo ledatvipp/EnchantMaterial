@@ -19,14 +19,13 @@ import org.bukkit.scheduler.BukkitRunnable;
 import net.md_5.bungee.api.ChatMessageType;
 import net.md_5.bungee.api.chat.TextComponent;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class BlockBreakListener implements Listener {
 
+    private final EnchantMaterial plugin;
     private final Map<Player, Long> lastMessageTime = new HashMap<>();
     private final LuckyChanceBlockListener luckyChanceBlockListener;
     private final FortuneManager fortuneManager;
@@ -38,6 +37,16 @@ public class BlockBreakListener implements Listener {
     private final Map<String, BlockData> blockDataCache = new HashMap<>();
     private long lastConfigCacheUpdate = 0;
     private static final long CONFIG_CACHE_DURATION = 60_000; // 1 phút
+
+    private volatile boolean allowEmptyHandBreak = false;
+    private volatile boolean cancelNaturalDrops = true;
+    private volatile boolean luckyBlocksEnabled = false;
+    private volatile double extraDropChance = 0.8D;
+    private volatile double notificationBufferSeconds = 0.3D;
+    private volatile int actionBarIntervalTicks = 8;
+    private volatile String notificationMode = "actionbar";
+    private volatile String actionBarTemplate = "§a+%score% điểm §7(%block%)";
+    private volatile String actionBarPvpTemplate = "§a+%score% điểm §7(%block%) §6(-%pvp_mul%x khu an toàn)";
 
     // Ánh xạ ngược: Material -> các display strings yêu cầu (từ enchantments.*)
     private final Map<Material, Set<String>> requiredDisplaysByMaterial = new EnumMap<>(Material.class);
@@ -53,6 +62,7 @@ public class BlockBreakListener implements Listener {
     private final Map<UUID, Long> lastBufferTime = new ConcurrentHashMap<>();
 
     public BlockBreakListener(FortuneManager fortuneManager, LuckyChanceBlockListener luckyChanceBlockListener) {
+        this.plugin = EnchantMaterial.getInstance();
         this.fortuneManager = fortuneManager;
         this.luckyChanceBlockListener = luckyChanceBlockListener;
         updateConfigCache();
@@ -62,8 +72,6 @@ public class BlockBreakListener implements Listener {
     private void updateConfigCache() {
         long now = System.currentTimeMillis();
         if (now - lastConfigCacheUpdate < CONFIG_CACHE_DURATION) return;
-
-        EnchantMaterial plugin = EnchantMaterial.getInstance();
 
         // material-whitelist
         materialWhiteListCache.clear();
@@ -77,16 +85,31 @@ public class BlockBreakListener implements Listener {
         luckyBlockTypesCache.clear();
         luckyBlockTypesCache.addAll(plugin.getConfig().getStringList("lucky-blocks.block-replace"));
 
+        allowEmptyHandBreak = plugin.getConfig().getBoolean("settings.empty_hand_break", false);
+        cancelNaturalDrops = plugin.getConfig().getBoolean("performance.drops.cancel_natural_drops", true);
+        luckyBlocksEnabled = plugin.getConfig().getBoolean("lucky-blocks.enabled");
+        extraDropChance = Math.max(0D, Math.min(1D,
+                plugin.getConfig().getDouble("performance.drops.bonus_chance", 0.8D)));
+        notificationBufferSeconds = plugin.getConfig().getDouble("performance.notification_buffer_seconds", 0.3D);
+        actionBarIntervalTicks = plugin.getConfig().getInt("performance.actionbar_interval_ticks", 8);
+        notificationMode = plugin.getConfig()
+                .getString("notification.mode", "actionbar")
+                .toLowerCase(Locale.ROOT);
+        actionBarTemplate = plugin.getConfig().getString(
+                "notification.actionbar",
+                "§a+%score% điểm §7(%block%)");
+        actionBarPvpTemplate = plugin.getConfig().getString(
+                "notification.actionbar_pvp",
+                "§a+%score% điểm §7(%block%) §6(-%pvp_mul%x khu an toàn)");
+
         // block-whitelist (exp/score/chance)
         blockDataCache.clear();
         for (Map<?, ?> m : plugin.getConfig().getMapList("block-whitelist")) {
-            String name = String.valueOf(m.get("type"));
-            if (name == null) continue;
-            BlockData data = new BlockData(
-                    String.valueOf(m.get("exp")),
-                    String.valueOf(m.get("score")),
-                    Double.parseDouble(String.valueOf(m.get("chance")))
-            );
+            Object typeObj = m.get("type");
+            if (typeObj == null) continue;
+            String name = String.valueOf(typeObj);
+            if (name.isEmpty()) continue;
+            BlockData data = BlockData.fromConfig(m.get("exp"), m.get("score"), m.get("chance"));
             blockDataCache.put(name, data);
         }
 
@@ -98,7 +121,6 @@ public class BlockBreakListener implements Listener {
         if (now - lastEnchantCacheUpdate < CONFIG_CACHE_DURATION) return;
 
         requiredDisplaysByMaterial.clear();
-        EnchantMaterial plugin = EnchantMaterial.getInstance();
 
         if (plugin.getConfig().contains("enchantments")) {
             for (String encKey : plugin.getConfig().getConfigurationSection("enchantments").getKeys(false)) {
@@ -123,7 +145,7 @@ public class BlockBreakListener implements Listener {
         if (player.hasPermission("enchantmaterial.admin")) return; // bỏ qua admin
 
         // Region check
-        if (!EnchantMaterial.getInstance().getRegionManager().isInAllowedRegion(event.getBlock().getLocation())) return;
+        if (!plugin.getRegionManager().isInAllowedRegion(event.getBlock().getLocation())) return;
 
         // Tải cache nếu quá hạn
         long now = System.currentTimeMillis();
@@ -147,14 +169,10 @@ public class BlockBreakListener implements Listener {
         }
 
         // Tay không (nếu không cho phép)
-        if (tool.getType() == Material.AIR) {
-            boolean allowEmpty = EnchantMaterial.getInstance().getConfig()
-                    .getBoolean("settings.empty_hand_break", false);
-            if (!allowEmpty) {
-                if (canSendMessage(player)) player.sendMessage(ChatColor.RED + "Bạn không thể đập block bằng tay không!");
-                event.setCancelled(true);
-                return;
-            }
+        if (tool.getType() == Material.AIR && !allowEmptyHandBreak) {
+            if (canSendMessage(player)) player.sendMessage(ChatColor.RED + "Bạn không thể đập block bằng tay không!");
+            event.setCancelled(true);
+            return;
         }
 
         // Kiểm tra lore/enchant cần có cho material này (nếu được cấu hình)
@@ -174,11 +192,12 @@ public class BlockBreakListener implements Listener {
             }
         }
 
+        ThreadLocalRandom random = ThreadLocalRandom.current();
+
         // Lucky Block
-        if (EnchantMaterial.getInstance().getConfig().getBoolean("lucky-blocks.enabled")
-                && luckyBlockTypesCache.contains(blockTypeName)) {
+        if (luckyBlocksEnabled && luckyBlockTypesCache.contains(blockTypeName)) {
             double chance = luckyChanceBlockListener.getPlayerLuckyChance(player);
-            if (ThreadLocalRandom.current().nextDouble() < chance) {
+            if (random.nextDouble() < chance) {
                 event.setCancelled(true);
                 block.setType(Material.LIME_GLAZED_TERRACOTTA);
                 luckyChanceBlockListener.handleLuckyChance(player, block);
@@ -188,58 +207,42 @@ public class BlockBreakListener implements Listener {
 
         // EXP – CHUYỂN THẲNG, KHÔNG SPAWN ORB
         BlockData blockData = blockDataCache.get(blockTypeName);
-        if (blockData != null && blockData.expStr != null) {
-            int exp = calculateExp(blockData.expStr);
+        BoosterManager boosterManager = plugin.getBoosterManager();
+        double fortuneMultiplier = fortuneManager.getMultiplier(player);
+        double dropMultiplier = boosterManager.getDropMultiplier(player);
+        double pointsMultiplier = boosterManager.getPointsMultiplier(player);
+        double expMultiplier = boosterManager.getExpMultiplier(player);
+
+        if (blockData != null && blockData.hasExp()) {
+            int exp = blockData.rollExp(random);
             // Chặn MỌI exp-orb từ block này
             event.setExpToDrop(0);
 
             if (exp > 0) {
-                double expMul = EnchantMaterial.getInstance().getBoosterManager().getExpMultiplier(player);
-                int finalExp = Math.max(0, (int) Math.round(exp * expMul));
-                // Cộng XP trực tiếp cho người chơi (vào thanh XP, không rơi orb)
-                player.giveExp(finalExp);
+                int finalExp = Math.max(0, (int) Math.round(exp * expMultiplier));
+                if (finalExp > 0) {
+                    // Cộng XP trực tiếp cho người chơi (vào thanh XP, không rơi orb)
+                    player.giveExp(finalExp);
+                }
             }
         }
 
         // Drop – hủy drop tự nhiên và tự xử lý
-        boolean cancelNatural = EnchantMaterial.getInstance().getConfig()
-                .getBoolean("performance.drops.cancel_natural_drops", true);
-        if (cancelNatural) {
+        if (cancelNaturalDrops) {
             event.setDropItems(false);
         }
-        handleDrops(player, tool, block);
+        handleDrops(player, tool, block, fortuneMultiplier, dropMultiplier, random);
 
         // Điểm – non-blocking, gộp + throttle UI
-        addPoints(player, blockType, blockData);
+        addPoints(player, blockType, blockData, fortuneMultiplier, pointsMultiplier, random);
     }
 
     // --- Helpers ---
-
-    private int calculateExp(String expStr) {
-        try {
-            if (expStr.contains("-")) {
-                String[] parts = expStr.split("-");
-                int min = Integer.parseInt(parts[0]);
-                int max = Integer.parseInt(parts[1]);
-                return ThreadLocalRandom.current().nextInt(min, max + 1);
-            } else {
-                return Integer.parseInt(expStr);
-            }
-        } catch (Exception e) {
-            return 0;
-        }
-    }
-
     /** GỘP DROP: addItem 1 lần, drop dư 1 lần */
-    private void handleDrops(Player player, ItemStack tool, Block block) {
-        BoosterManager boosterManager = EnchantMaterial.getInstance().getBoosterManager();
-        double fortuneMul = fortuneManager.getMultiplier(player);
-        double boosterMul = boosterManager.getDropMultiplier(player);
+    private void handleDrops(Player player, ItemStack tool, Block block,
+                             double fortuneMul, double boosterMul, ThreadLocalRandom rnd) {
         int bonusLvl = DropBonusUtils.getBonusLevel(tool);
-        double extraChance = EnchantMaterial.getInstance().getConfig()
-                .getDouble("performance.drops.bonus_chance", 0.8);
-
-        ThreadLocalRandom rnd = ThreadLocalRandom.current();
+        double extraChance = this.extraDropChance;
 
         for (ItemStack base : block.getDrops(tool)) {
             if (base == null || base.getType() == Material.AIR) continue;
@@ -317,47 +320,38 @@ public class BlockBreakListener implements Listener {
     }
 
     /** Cộng điểm non-blocking + buffer/throttle UI */
-    private void addPoints(Player player, Material blockType, BlockData blockData) {
-        if (blockData == null || blockData.scoreStr == null) return;
+    private void addPoints(Player player, Material blockType, BlockData blockData,
+                           double fortuneMul, double boosterPointsMul, ThreadLocalRandom rnd) {
+        if (blockData == null || !blockData.hasScore()) return;
 
-        String[] range = blockData.scoreStr.split("-");
-        if (range.length != 2) return;
+        if (!blockData.shouldReward(rnd)) return;
 
-        try {
-            double min = Double.parseDouble(range[0]);
-            double max = Double.parseDouble(range[1]);
+        double base = blockData.rollScore(rnd);
 
-            if (ThreadLocalRandom.current().nextDouble() < blockData.chance) {
-                double base = ThreadLocalRandom.current().nextDouble(min, max);
+        double mul = fortuneMul * boosterPointsMul;
 
-                EnchantMaterial plugin = EnchantMaterial.getInstance();
-                BoosterManager bm = plugin.getBoosterManager();
+        // PvP giảm điểm nếu đang bảo vệ
+        double pvpMul = 1.0D;
+        if (plugin.isPvpReductionEnabled(player) && plugin.isPvpProtected(player)) {
+            pvpMul = plugin.getPvpMultiplier(); // vd 0.5
+        }
 
-                // multiplier = fortune * boosterPoints
-                double mul = fortuneManager.getMultiplier(player) * bm.getPointsMultiplier(player);
+        double total = base * mul * pvpMul;
+        double rounded = Math.round(total * 100.0D) / 100.0D;
+        if (rounded <= 0) {
+            return;
+        }
 
-                // PvP giảm điểm nếu đang bảo vệ
-                double pvpMul = 1.0D;
-                if (plugin.isPvpReductionEnabled(player) && plugin.isPvpProtected(player)) {
-                    pvpMul = plugin.getPvpMultiplier(); // vd 0.5
-                }
+        // NON-BLOCKING: chỉ cộng delta vào cache + pending
+        DatabaseManager.addPointsAsync(player.getUniqueId(), rounded);
 
-                double total = base * mul * pvpMul;
-                double rounded = new BigDecimal(total).setScale(2, RoundingMode.HALF_UP).doubleValue();
+        // UI: buffer + throttle ActionBar
+        bufferAndNotify(player, rounded, blockType.name());
 
-                // NON-BLOCKING: chỉ cộng delta vào cache + pending
-                DatabaseManager.addPointsAsync(player.getUniqueId(), rounded);
-
-                // UI: buffer + throttle ActionBar
-                bufferAndNotify(player, rounded, blockType.name());
-
-                // Kiểm tra lên cấp (không block): dùng cache nếu có
-                PlayerData pd = DatabaseManager.getCached(player.getUniqueId());
-                if (pd != null) {
-                    Bukkit.getScheduler().runTask(plugin, () -> checkLevelUp(player, pd.getPoints()));
-                }
-            }
-        } catch (NumberFormatException ignored) {
+        // Kiểm tra lên cấp (không block): dùng cache nếu có
+        PlayerData pd = DatabaseManager.getCached(player.getUniqueId());
+        if (pd != null) {
+            Bukkit.getScheduler().runTask(plugin, () -> checkLevelUp(player, pd.getPoints()));
         }
     }
 
@@ -367,9 +361,7 @@ public class BlockBreakListener implements Listener {
         long now = System.currentTimeMillis();
         pointsBuffer.merge(id, delta, Double::sum);
 
-        double bufferSeconds = EnchantMaterial.getInstance().getConfig()
-                .getDouble("performance.notification_buffer_seconds", 0.3D);
-        long bufferMillis = (long) (bufferSeconds * 1000);
+        long bufferMillis = (long) (Math.max(0D, notificationBufferSeconds) * 1000.0D);
 
         // Chưa tới thời gian gộp
         long last = lastBufferTime.getOrDefault(id, 0L);
@@ -379,26 +371,28 @@ public class BlockBreakListener implements Listener {
         lastBufferTime.put(id, now);
         double totalAdded = pointsBuffer.getOrDefault(id, 0.0);
         pointsBuffer.put(id, 0.0);
+        if (totalAdded <= 0) {
+            return;
+        }
 
         // Throttle theo ticks (tính theo ms)
-        int intervalTicks = EnchantMaterial.getInstance().getConfig()
-                .getInt("performance.actionbar_interval_ticks", 8);
-        long tickMs = intervalTicks * 50L;
+        long tickMs = Math.max(0, actionBarIntervalTicks) * 50L;
 
         long lastSend = lastActionBarTime.getOrDefault(id, 0L);
         if (now - lastSend < tickMs) return;
         lastActionBarTime.put(id, now);
 
         // Chỉ xử lý khi mode actionbar (các mode khác giữ nguyên sendNotification cũ)
-        String mode = EnchantMaterial.getInstance().getConfig().getString("notification.mode", "actionbar").toLowerCase(Locale.ROOT);
-        if (!"actionbar".equals(mode)) {
+        if (!"actionbar".equals(notificationMode)) {
             // fallback: dùng sendNotification cũ cho mode chat/title/bossbar
             sendNotification(player, totalAdded, blockName);
             return;
         }
 
-        String fmt = EnchantMaterial.getInstance().getConfig()
-                .getString("notification.actionbar", "§a+%score% điểm §7(%block%)")
+        String template = actionBarTemplate != null && !actionBarTemplate.isEmpty()
+                ? actionBarTemplate
+                : "§a+%score% điểm §7(%block%)";
+        String fmt = template
                 .replace("%score%", String.format(Locale.US, "%.2f", totalAdded))
                 .replace("%block%", blockName);
 
@@ -407,8 +401,7 @@ public class BlockBreakListener implements Listener {
     }
 
     private void sendNotification(Player player, double score, String blockName) {
-        EnchantMaterial plugin = EnchantMaterial.getInstance();
-        String mode = plugin.getConfig().getString("notification.mode", "actionbar").toLowerCase(Locale.ROOT);
+        String mode = notificationMode != null ? notificationMode : "actionbar";
         String scoreStr = String.format(Locale.US, "%.2f", score);
 
         // Xác định trạng thái PvP-protect (đang ở khu an toàn và có bật giảm)
@@ -440,11 +433,13 @@ public class BlockBreakListener implements Listener {
             case "actionbar":
             default: {
                 // Nếu đang PvP-protect -> dùng template khác
-                String key = pvpActive ? "notification.actionbar_pvp" : "notification.actionbar";
-                String def = pvpActive
-                        ? "§a+%score% điểm §7(%block%) §6(-%pvp_mul%x khu an toàn)"
-                        : "§a+%score% điểm §7(%block%)";
-                String msg = plugin.getConfig().getString(key, def)
+                String template = pvpActive ? actionBarPvpTemplate : actionBarTemplate;
+                if (template == null || template.isEmpty()) {
+                    template = pvpActive
+                            ? "§a+%score% điểm §7(%block%) §6(-%pvp_mul%x khu an toàn)"
+                            : "§a+%score% điểm §7(%block%)";
+                }
+                String msg = template
                         .replace("%score%", scoreStr)
                         .replace("%block%", blockName)
                         .replace("%pvp_mul%", pvpMulStr);
@@ -482,7 +477,7 @@ public class BlockBreakListener implements Listener {
                 bossBarTasks.remove(player);
             }
         };
-        task.runTaskLater(EnchantMaterial.getInstance(), 60L);
+        task.runTaskLater(plugin, 60L);
         bossBarTasks.put(player, task);
     }
 
@@ -523,7 +518,7 @@ public class BlockBreakListener implements Listener {
     }
 
     private void checkLevelUp(Player player, double points) {
-        List<Double> req = EnchantMaterial.getInstance().getConfig().getDoubleList("level-request");
+        List<Double> req = plugin.getConfig().getDoubleList("level-request");
         int cur = getCurrentLevel(player);
 
         for (int i = cur; i < req.size(); i++) {
@@ -540,10 +535,10 @@ public class BlockBreakListener implements Listener {
         setPlayerLevel(player, newLevel);
 
         String title = ChatColor.translateAlternateColorCodes('&',
-                EnchantMaterial.getInstance().getConfig().getString("level-up-title.title")
+                plugin.getConfig().getString("level-up-title.title")
                         .replace("%next_level%", String.valueOf(newLevel)));
         String subtitle = ChatColor.translateAlternateColorCodes('&',
-                EnchantMaterial.getInstance().getConfig().getString("level-up-title.subtitle")
+                plugin.getConfig().getString("level-up-title.subtitle")
                         .replace("%next_level%", String.valueOf(newLevel)));
 
         player.sendTitle(title, subtitle, 10, 70, 20);
@@ -552,13 +547,171 @@ public class BlockBreakListener implements Listener {
 
     // Inner class để cache block data
     private static class BlockData {
-        final String expStr;
-        final String scoreStr;
-        final double chance;
-        BlockData(String expStr, String scoreStr, double chance) {
-            this.expStr = expStr;
-            this.scoreStr = scoreStr;
+        private final boolean hasExp;
+        private final int expMin;
+        private final int expMax;
+        private final boolean hasScore;
+        private final double scoreMin;
+        private final double scoreMax;
+        private final double chance;
+
+        private BlockData(boolean hasExp, int expMin, int expMax,
+                          boolean hasScore, double scoreMin, double scoreMax,
+                          double chance) {
+            this.hasExp = hasExp;
+            this.expMin = expMin;
+            this.expMax = expMax;
+            this.hasScore = hasScore;
+            this.scoreMin = scoreMin;
+            this.scoreMax = scoreMax;
             this.chance = chance;
+        }
+
+        static BlockData fromConfig(Object expObj, Object scoreObj, Object chanceObj) {
+            RangeInt expRange = parseIntRange(expObj);
+            RangeDouble scoreRange = parseDoubleRange(scoreObj);
+            double chance = parseChance(chanceObj);
+
+            boolean hasExp = expRange != null;
+            boolean hasScore = scoreRange != null;
+
+            int expMin = hasExp ? expRange.min : 0;
+            int expMax = hasExp ? expRange.max : 0;
+            double scoreMin = hasScore ? scoreRange.min : 0D;
+            double scoreMax = hasScore ? scoreRange.max : 0D;
+
+            return new BlockData(hasExp, expMin, expMax, hasScore, scoreMin, scoreMax, chance);
+        }
+
+        boolean hasExp() {
+            return hasExp;
+        }
+
+        boolean hasScore() {
+            return hasScore;
+        }
+
+        int rollExp(ThreadLocalRandom rnd) {
+            if (!hasExp) return 0;
+            if (expMax <= expMin) return expMin;
+            return rnd.nextInt(expMin, expMax + 1);
+        }
+
+        double rollScore(ThreadLocalRandom rnd) {
+            if (!hasScore) return 0D;
+            if (scoreMax <= scoreMin) return scoreMin;
+            return rnd.nextDouble(scoreMin, scoreMax);
+        }
+
+        boolean shouldReward(ThreadLocalRandom rnd) {
+            if (!hasScore) return false;
+            if (chance <= 0D) return false;
+            if (chance >= 1D) return true;
+            return rnd.nextDouble() < chance;
+        }
+
+        private static RangeInt parseIntRange(Object value) {
+            if (value == null) return null;
+            if (value instanceof Number) {
+                int v = ((Number) value).intValue();
+                return new RangeInt(v, v);
+            }
+            String str = value.toString();
+            if (str == null) return null;
+            str = str.trim();
+            if (str.isEmpty() || "null".equalsIgnoreCase(str)) {
+                return null;
+            }
+            try {
+                if (str.contains("-")) {
+                    String[] parts = str.split("-");
+                    if (parts.length >= 2) {
+                        int min = Integer.parseInt(parts[0].trim());
+                        int max = Integer.parseInt(parts[1].trim());
+                        if (max < min) {
+                            int tmp = min;
+                            min = max;
+                            max = tmp;
+                        }
+                        return new RangeInt(min, max);
+                    }
+                }
+                int single = Integer.parseInt(str);
+                return new RangeInt(single, single);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+
+        private static RangeDouble parseDoubleRange(Object value) {
+            if (value == null) return null;
+            if (value instanceof Number) {
+                double v = ((Number) value).doubleValue();
+                return new RangeDouble(v, v);
+            }
+            String str = value.toString();
+            if (str == null) return null;
+            str = str.trim();
+            if (str.isEmpty() || "null".equalsIgnoreCase(str)) {
+                return null;
+            }
+            try {
+                if (str.contains("-")) {
+                    String[] parts = str.split("-");
+                    if (parts.length >= 2) {
+                        double min = Double.parseDouble(parts[0].trim());
+                        double max = Double.parseDouble(parts[1].trim());
+                        if (max < min) {
+                            double tmp = min;
+                            min = max;
+                            max = tmp;
+                        }
+                        return new RangeDouble(min, max);
+                    }
+                }
+                double single = Double.parseDouble(str);
+                return new RangeDouble(single, single);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+
+        private static double parseChance(Object value) {
+            double defaultChance = 1.0D;
+            if (value == null) return defaultChance;
+            if (value instanceof Number) {
+                return clampChance(((Number) value).doubleValue());
+            }
+            try {
+                return clampChance(Double.parseDouble(value.toString().trim()));
+            } catch (Exception ignored) {
+                return defaultChance;
+            }
+        }
+
+        private static double clampChance(double value) {
+            if (Double.isNaN(value)) return 0D;
+            if (value < 0D) return 0D;
+            if (value > 1D) return 1D;
+            return value;
+        }
+
+        private static final class RangeInt {
+            final int min;
+            final int max;
+            RangeInt(int min, int max) {
+                this.min = min;
+                this.max = max;
+            }
+        }
+
+        private static final class RangeDouble {
+            final double min;
+            final double max;
+            RangeDouble(double min, double max) {
+                this.min = min;
+                this.max = max;
+            }
         }
     }
 }
