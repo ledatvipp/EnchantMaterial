@@ -158,7 +158,7 @@ public class EnchantMaterialPlaceholder extends PlaceholderExpansion {
                 try {
                     RebirthData rebirthData = DatabaseManager.getRebirthData(uuid);
                     RebirthManager rebirthManager = plugin.getRebirthManager();
-                    int maxLevel = rebirthManager.getConfig().getInt("rebirth.max-level", 10);
+                    int maxLevel = rebirthManager.getConfig().getInt("rebirth.rebirth.max-level", 10);
                     int currentLevel = rebirthData.getRebirthLevel();
                     return currentLevel >= maxLevel ? "MAX" : String.valueOf(currentLevel + 1);
                 } catch (Exception e) {
@@ -204,7 +204,7 @@ public class EnchantMaterialPlaceholder extends PlaceholderExpansion {
                     RebirthData rebirthData = DatabaseManager.getRebirthData(uuid);
                     RebirthManager rebirthManager = plugin.getRebirthManager();
                     int nextLevel = rebirthData.getRebirthLevel() + 1;
-                    String path = "rebirth.levels." + nextLevel + ".required-level";
+                    String path = "rebirth.rebirth.levels." + nextLevel + ".required-level";
                     return String.valueOf(rebirthManager.getConfig().getInt(path, 0));
                 } catch (Exception e) {
                     return "0";
@@ -216,7 +216,7 @@ public class EnchantMaterialPlaceholder extends PlaceholderExpansion {
                     RebirthData rebirthData = DatabaseManager.getRebirthData(uuid);
                     RebirthManager rebirthManager = plugin.getRebirthManager();
                     int nextLevel = rebirthData.getRebirthLevel() + 1;
-                    String path = "rebirth.levels." + nextLevel + ".required-money";
+                    String path = "rebirth.rebirth.levels." + nextLevel + ".required-money";
                     double money = rebirthManager.getConfig().getDouble(path, 0);
                     return formatValue(money);
                 } catch (Exception e) {
@@ -229,7 +229,7 @@ public class EnchantMaterialPlaceholder extends PlaceholderExpansion {
                     RebirthData rebirthData = DatabaseManager.getRebirthData(uuid);
                     RebirthManager rebirthManager = plugin.getRebirthManager();
                     int nextLevel = rebirthData.getRebirthLevel() + 1;
-                    String path = "rebirth.levels." + nextLevel + ".success-rate";
+                    String path = "rebirth.rebirth.levels." + nextLevel + ".success-rate";
                     double rate = rebirthManager.getConfig().getDouble(path, 100.0);
                     return String.format("%.1f%%", rate);
                 } catch (Exception e) {
@@ -241,7 +241,7 @@ public class EnchantMaterialPlaceholder extends PlaceholderExpansion {
                 try {
                     RebirthData rebirthData = DatabaseManager.getRebirthData(uuid);
                     RebirthManager rebirthManager = plugin.getRebirthManager();
-                    int maxLevel = rebirthManager.getConfig().getInt("rebirth.max-level", 10);
+                    int maxLevel = rebirthManager.getConfig().getInt("rebirth.rebirth.max-level", 10);
                     int currentLevel = rebirthData.getRebirthLevel();
                     return String.format("%d/%d", currentLevel, maxLevel);
                 } catch (Exception e) {
@@ -253,7 +253,7 @@ public class EnchantMaterialPlaceholder extends PlaceholderExpansion {
                 try {
                     RebirthData rebirthData = DatabaseManager.getRebirthData(uuid);
                     RebirthManager rebirthManager = plugin.getRebirthManager();
-                    int maxLevel = rebirthManager.getConfig().getInt("rebirth.max-level", 10);
+                    int maxLevel = rebirthManager.getConfig().getInt("rebirth.rebirth.max-level", 10);
                     int currentLevel = rebirthData.getRebirthLevel();
                     double percent = maxLevel > 0 ? (double) currentLevel / maxLevel * 100 : 0;
                     return String.format("%.1f%%", percent);
@@ -266,7 +266,7 @@ public class EnchantMaterialPlaceholder extends PlaceholderExpansion {
                 try {
                     RebirthData rebirthData = DatabaseManager.getRebirthData(uuid);
                     RebirthManager rebirthManager = plugin.getRebirthManager();
-                    int maxLevel = rebirthManager.getConfig().getInt("rebirth.max-level", 10);
+                    int maxLevel = rebirthManager.getConfig().getInt("rebirth.rebirth.max-level", 10);
                     int currentLevel = rebirthData.getRebirthLevel();
                     double percent = maxLevel > 0 ? (double) currentLevel / maxLevel : 0;
                     return getProgressBar(percent);
