@@ -12,6 +12,7 @@ import java.sql.SQLException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -279,21 +280,27 @@ public class DatabaseManager {
     }
 
     // Thêm phương thức này vào DatabaseManager
-    public static void forceSaveAllPendingData() {
-        if (!pendingUpdates.isEmpty()) {
-            processBatchUpdates();
+    public static CompletableFuture<Void> forceSaveAllPendingDataAsync() {
+        if (pendingUpdates.isEmpty() || batchExecutor.isShutdown()) {
+            return CompletableFuture.completedFuture(null);
+        }
 
-            // Đợi cho đến khi tất cả pending updates được xử lý
-            int maxWait = 50; // 5 giây
-            while (!pendingUpdates.isEmpty() && maxWait > 0) {
-                try {
-                    Thread.sleep(100);
-                    maxWait--;
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
+        return CompletableFuture.runAsync(() -> {
+            if (!pendingUpdates.isEmpty()) {
+                processBatchUpdates();
             }
+        }, batchExecutor);
+    }
+
+    public static void forceSaveAllPendingData() {
+        try {
+            forceSaveAllPendingDataAsync().join();
+        } catch (CompletionException e) {
+            Throwable cause = e.getCause() != null ? e.getCause() : e;
+            String message = cause.getMessage() != null ? cause.getMessage() : cause.toString();
+            EnchantMaterial.getInstance().getLogger().warning(
+                    "Lỗi khi force save pending data: " + message
+            );
         }
     }
 
