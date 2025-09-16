@@ -14,16 +14,17 @@ import org.ledat.enchantMaterial.listeners.PlayerQuitListener;
 import org.ledat.enchantMaterial.rebirth.RebirthManager;
 import org.ledat.enchantMaterial.rewards.LevelRewardsManager;
 import org.ledat.enchantMaterial.region.RegionManager;
-import org.bukkit.entity.Player;
 import org.bukkit.plugin.RegisteredServiceProvider;
 
 import java.lang.reflect.Method;
 import java.io.File;
 import java.sql.SQLException;
-import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 
 public class EnchantMaterial extends JavaPlugin {
 
@@ -190,36 +191,32 @@ public class EnchantMaterial extends JavaPlugin {
     public void onDisable() {
         getLogger().info("EnchantMaterial has been disabled!");
     
-        // Force save tất cả pending data trước
-        DatabaseManager.forceSaveAllPendingData();
-        
+        List<CompletableFuture<Void>> shutdownTasks = new ArrayList<>();
+        shutdownTasks.add(DatabaseManager.forceSaveAllPendingDataAsync());
+
         // Lưu toàn bộ dữ liệu người chơi từ PENDING UPDATES
         for (Player player : Bukkit.getOnlinePlayers()) {
-            try {
-                UUID uuid = player.getUniqueId();
-                
-                // Lấy dữ liệu từ pending updates hoặc cache
-                DatabaseManager.getPlayerDataAsync(uuid).thenAccept(playerData -> {
-                    // Force save ngay lập tức
-                    DatabaseManager.savePlayerDataImmediate(playerData);
-                  //  getLogger().info("Đã save dữ liệu cho player: " + player.getName() + 
-                  //                 " (Level: " + playerData.getLevel() + ", Points: " + playerData.getPoints() + ")");
-                }).exceptionally(throwable -> {
-                 //   getLogger().warning("Lỗi save dữ liệu cho " + player.getName() + ": " + throwable.getMessage());
-                    return null;
-                });
-                
-            } catch (Exception e) {
-                getLogger().warning("Lỗi xử lý dữ liệu cho " + player.getName() + ": " + e.getMessage());
-                e.printStackTrace();
-            }
+            UUID uuid = player.getUniqueId();
+
+            CompletableFuture<Void> saveTask = DatabaseManager.getPlayerDataAsync(uuid)
+                    .thenAccept(playerData -> DatabaseManager.savePlayerDataImmediate(playerData))
+                    .exceptionally(throwable -> {
+                        getLogger().warning("Lỗi save dữ liệu cho " + player.getName() + ": " + throwable.getMessage());
+                        return null;
+                    });
+
+            shutdownTasks.add(saveTask);
         }
-        
-        // Đợi một chút để đảm bảo tất cả async operations hoàn thành
+
+        CompletableFuture<Void> saveFuture = CompletableFuture
+                .allOf(shutdownTasks.toArray(new CompletableFuture[0]));
+
         try {
-            Thread.sleep(1000); // 1 giây
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            saveFuture.join();
+        } catch (CompletionException e) {
+            Throwable cause = e.getCause() != null ? e.getCause() : e;
+            String message = cause.getMessage() != null ? cause.getMessage() : cause.toString();
+            getLogger().warning("Lỗi khi chờ lưu dữ liệu người chơi: " + message);
         }
     
         if (boosterManager != null) {
