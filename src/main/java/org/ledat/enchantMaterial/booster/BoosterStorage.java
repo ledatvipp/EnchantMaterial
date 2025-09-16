@@ -165,16 +165,16 @@ public class BoosterStorage {
                         BoosterType type = BoosterType.valueOf(rs.getString("type"));
                         double multiplier = rs.getDouble("multiplier");
                         long endTime = rs.getLong("end_time");
-                        
+
                         // Validate data
                         if (multiplier <= 0 || endTime <= currentTime) {
                             continue;
                         }
-                        
-                        long durationSeconds = (endTime - currentTime) / 1000;
-                        if (durationSeconds <= 0) continue;
-                        
-                        Booster booster = new Booster(type, multiplier, durationSeconds);
+
+                        long remainingMillis = endTime - currentTime;
+                        if (remainingMillis <= 0) continue;
+
+                        Booster booster = new Booster(type, multiplier, currentTime, endTime);
                         result.computeIfAbsent(uuid, k -> new ArrayList<>()).add(booster);
                         loadedCount++;
                         
@@ -215,10 +215,10 @@ public class BoosterStorage {
                             BoosterType type = BoosterType.valueOf(rs.getString("type"));
                             double multiplier = rs.getDouble("multiplier");
                             long endTime = rs.getLong("end_time");
-                            
-                            long durationSeconds = (endTime - currentTime) / 1000;
-                            if (durationSeconds > 0) {
-                                boosters.add(new Booster(type, multiplier, durationSeconds));
+
+                            long remainingMillis = endTime - currentTime;
+                            if (remainingMillis > 0) {
+                                boosters.add(new Booster(type, multiplier, currentTime, endTime));
                             }
                         } catch (Exception e) {
                             plugin.getLogger().warning("❌ Lỗi parse booster: " + e.getMessage());
@@ -300,22 +300,24 @@ public class BoosterStorage {
             return;
         }
         
-        String sql = "INSERT INTO boosters (uuid, type, multiplier, end_time) VALUES (?, ?, ?, ?)";
-        
+        String deleteSql = "DELETE FROM boosters WHERE uuid = ? AND type = ?";
+        String insertSql = "INSERT INTO boosters (uuid, type, multiplier, end_time) VALUES (?, ?, ?, ?)";
+
         try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
-            
-            stmt.setString(1, playerUUID.toString());
-            stmt.setString(2, booster.getType().name());
-            stmt.setDouble(3, booster.getMultiplier());
-            stmt.setLong(4, booster.getEndTime());
-            
-            int result = stmt.executeUpdate();
-            
-            if (result > 0) {
-             //   plugin.getLogger().info("✅ Đã save booster " + booster.getType() + " cho player " + playerUUID);
-            }
-            
+             PreparedStatement deleteStmt = conn.prepareStatement(deleteSql);
+             PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
+
+            deleteStmt.setString(1, playerUUID.toString());
+            deleteStmt.setString(2, booster.getType().name());
+            deleteStmt.executeUpdate();
+
+            insertStmt.setString(1, playerUUID.toString());
+            insertStmt.setString(2, booster.getType().name());
+            insertStmt.setDouble(3, booster.getMultiplier());
+            insertStmt.setLong(4, booster.getEndTime());
+
+            insertStmt.executeUpdate();
+
         } catch (SQLException e) {
             plugin.getLogger().log(Level.SEVERE, "❌ Lỗi save booster cho player " + playerUUID, e);
         }
