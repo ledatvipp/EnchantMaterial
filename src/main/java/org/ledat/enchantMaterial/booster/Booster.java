@@ -75,7 +75,43 @@ public class Booster {
     public long getTimeLeftSeconds() {
         return getRemainingMillis() / 1000L;
     }
-    
+
+    public long getTotalDurationMillis() {
+        return Math.max(0L, endTime - startTime);
+    }
+
+    public long getTotalDurationSeconds() {
+        return getTotalDurationMillis() / 1000L;
+    }
+
+    public long getElapsedSeconds() {
+        return Math.max(0L, (System.currentTimeMillis() - startTime) / 1000L);
+    }
+
+    public Booster extendDuration(long additionalSeconds) {
+        if (additionalSeconds <= 0) {
+            throw new IllegalArgumentException("Thời gian cộng thêm phải lớn hơn 0");
+        }
+        long additionalMillis = additionalSeconds * 1000L;
+        long newEndTime = endTime + additionalMillis;
+        return new Booster(type, multiplier, startTime, newEndTime);
+    }
+
+    public Booster withMultiplier(double newMultiplier) {
+        if (newMultiplier <= 0) {
+            throw new IllegalArgumentException("Multiplier mới phải lớn hơn 0");
+        }
+        return new Booster(type, newMultiplier, startTime, endTime);
+    }
+
+    public double getRemainingRatio() {
+        long totalDuration = getTotalDurationMillis();
+        if (totalDuration <= 0) {
+            return 0.0;
+        }
+        return Math.max(0.0, Math.min(1.0, (double) getRemainingMillis() / totalDuration));
+    }
+
     public double getProgressPercentage() {
         long totalDuration = endTime - startTime;
         long elapsed = System.currentTimeMillis() - startTime;

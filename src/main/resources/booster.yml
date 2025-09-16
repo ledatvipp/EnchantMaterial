@@ -1,5 +1,6 @@
 settings:
   max-per-player: 2
+  default-stack-strategy: SMART
 
 bossbar:
   show-bossbar: true
@@ -11,3 +12,6 @@ bossbar:
     title: "&bBooster 1: &f%type1% x%multiplier1% &7(%time1%) &8| &aBooster 2: &f%type2% x%multiplier2% &7(%time2%)"
     color: BLUE
     style: SEGMENTED_20
+  multi:
+    title: "&bBooster 1: &f%type1% x%multiplier1% &7(%time1%) &8| &aBooster 2: &f%type2% x%multiplier2% &7(%time2%)%more%"
+    more-format: " &7(+%count% booster khác)"

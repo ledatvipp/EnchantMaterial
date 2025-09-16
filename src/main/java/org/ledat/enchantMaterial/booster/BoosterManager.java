@@ -4,6 +4,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.boss.*;
 import org.bukkit.entity.Player;
+import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 import org.ledat.enchantMaterial.EnchantMaterial;
@@ -20,6 +21,7 @@ public class BoosterManager {
     private final Map<UUID, List<Booster>> activeBoosters = new ConcurrentHashMap<>();
     private final Map<UUID, BossBar> playerBars = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastBossBarUpdate = new ConcurrentHashMap<>();
+    private final Map<UUID, Map<BoosterType, BoosterRequest>> boosterMetadata = new ConcurrentHashMap<>();
     
     private final EnchantMaterial plugin;
     private final AtomicBoolean isShuttingDown = new AtomicBoolean(false);
@@ -38,7 +40,245 @@ public class BoosterManager {
         startTasks();
         loadBoostersFromStorage();
     }
-    
+
+    public BoosterActivationResult processBoosterRequest(Player player, BoosterRequest request) {
+        if (request == null) {
+            BoosterRequest fallback = BoosterRequest.builder(BoosterType.POINTS)
+                    .multiplier(1.0)
+                    .durationSeconds(1)
+                    .saveToStorage(false)
+                    .build();
+            return BoosterActivationResult.failure(fallback, BoosterFailureReason.INVALID_REQUEST, "Yêu cầu booster không hợp lệ.");
+        }
+
+        if (player == null) {
+            return BoosterActivationResult.failure(request, BoosterFailureReason.PLAYER_OFFLINE, "Không tìm thấy người chơi.");
+        }
+
+        if (isShuttingDown.get()) {
+            return BoosterActivationResult.failure(request, BoosterFailureReason.PLUGIN_SHUTTING_DOWN,
+                    "Plugin đang tắt, không thể xử lý booster mới.");
+        }
+
+        BoosterType type = request.getType();
+        if (type == null) {
+            return BoosterActivationResult.failure(request, BoosterFailureReason.INVALID_REQUEST, "Loại booster không hợp lệ.");
+        }
+
+        double targetMultiplier = request.hasCustomBooster()
+                ? request.getCustomBooster().getMultiplier()
+                : request.getMultiplier();
+
+        if (!request.hasCustomBooster() && !request.isBypassValidation() && !type.isValidMultiplier(targetMultiplier)) {
+            return BoosterActivationResult.failure(request, BoosterFailureReason.INVALID_MULTIPLIER,
+                    "Multiplier vượt quá giới hạn cho booster " + type.name().toLowerCase());
+        }
+
+        if (targetMultiplier <= 0) {
+            return BoosterActivationResult.failure(request, BoosterFailureReason.INVALID_MULTIPLIER,
+                    "Multiplier phải lớn hơn 0.");
+        }
+
+        if (!request.hasCustomBooster() && request.getDurationSeconds() <= 0) {
+            return BoosterActivationResult.failure(request, BoosterFailureReason.INVALID_DURATION,
+                    "Thời gian booster phải lớn hơn 0.");
+        }
+
+        UUID uuid = player.getUniqueId();
+        Booster boosterToApply = null;
+        Booster previous = null;
+        BoosterActivationResult result;
+
+        synchronized (activeBoosters) {
+            activeBoosters.putIfAbsent(uuid, new ArrayList<>());
+            List<Booster> boosters = activeBoosters.get(uuid);
+            boosters.removeIf(Booster::isExpired);
+
+            BoosterStackingStrategy strategy = resolveStackingStrategy(request);
+            Optional<Booster> existingOpt = boosters.stream()
+                    .filter(b -> b.getType() == type)
+                    .findFirst();
+
+            if (existingOpt.isPresent()) {
+                previous = existingOpt.get();
+
+                switch (strategy) {
+                    case REJECT_DUPLICATES:
+                        return BoosterActivationResult.failure(request, BoosterFailureReason.DUPLICATE_TYPE,
+                                "Người chơi đã có booster loại này.");
+                    case EXTEND_DURATION: {
+                        long additionalSeconds = request.getDurationSeconds();
+                        if (additionalSeconds <= 0) {
+                            return BoosterActivationResult.failure(request, BoosterFailureReason.INVALID_DURATION,
+                                    "Thời gian cộng thêm phải lớn hơn 0.");
+                        }
+                        boosterToApply = previous.extendDuration(additionalSeconds);
+                        boosters.remove(previous);
+                        boosters.add(boosterToApply);
+                        sortByExpiry(boosters);
+                        result = BoosterActivationResult.extended(request, boosterToApply, previous, additionalSeconds,
+                                "Đã cộng thêm " + additionalSeconds + " giây cho booster " + type.name().toLowerCase());
+                        break;
+                    }
+                    case REPLACE_IF_STRONGER: {
+                        if (!request.isBypassValidation() && targetMultiplier <= previous.getMultiplier()) {
+                            return BoosterActivationResult.failure(request, BoosterFailureReason.WEAKER_THAN_CURRENT,
+                                    "Booster hiện tại mạnh hơn (x" + previous.getMultiplier() + ")");
+                        }
+                        boosterToApply = request.hasCustomBooster()
+                                ? request.getCustomBooster()
+                                : new Booster(type, targetMultiplier, request.getDurationSeconds());
+                        boosters.remove(previous);
+                        boosters.add(boosterToApply);
+                        sortByExpiry(boosters);
+                        result = BoosterActivationResult.replaced(request, boosterToApply, previous,
+                                "Đã thay thế booster cũ x" + previous.getMultiplier() + " bằng booster mới x" + boosterToApply.getMultiplier());
+                        break;
+                    }
+                    case SMART:
+                    default: {
+                        if (targetMultiplier > previous.getMultiplier()) {
+                            boosterToApply = request.hasCustomBooster()
+                                    ? request.getCustomBooster()
+                                    : new Booster(type, targetMultiplier, request.getDurationSeconds());
+                            boosters.remove(previous);
+                            boosters.add(boosterToApply);
+                            sortByExpiry(boosters);
+                            result = BoosterActivationResult.replaced(request, boosterToApply, previous,
+                                    "Đã nâng cấp booster lên x" + boosterToApply.getMultiplier());
+                        } else if (Math.abs(targetMultiplier - previous.getMultiplier()) < 0.0001D) {
+                            long additionalSeconds = request.getDurationSeconds();
+                            if (additionalSeconds <= 0) {
+                                return BoosterActivationResult.failure(request, BoosterFailureReason.INVALID_DURATION,
+                                        "Thời gian cộng thêm phải lớn hơn 0.");
+                            }
+                            boosterToApply = previous.extendDuration(additionalSeconds);
+                            boosters.remove(previous);
+                            boosters.add(boosterToApply);
+                            sortByExpiry(boosters);
+                            result = BoosterActivationResult.extended(request, boosterToApply, previous, additionalSeconds,
+                                    "Đã cộng thêm " + additionalSeconds + " giây cho booster " + type.name().toLowerCase());
+                        } else {
+                            return BoosterActivationResult.failure(request, BoosterFailureReason.WEAKER_THAN_CURRENT,
+                                    "Booster mới yếu hơn booster hiện tại x" + previous.getMultiplier());
+                        }
+                        break;
+                    }
+                }
+            } else {
+                int maxBoosters = request.isBypassLimit() ? Integer.MAX_VALUE : plugin.getBoosterConfig().getInt("settings.max-per-player", 3);
+                if (boosters.size() >= maxBoosters) {
+                    return BoosterActivationResult.failure(request, BoosterFailureReason.LIMIT_REACHED,
+                            "Người chơi đã đạt giới hạn " + maxBoosters + " booster đang hoạt động.");
+                }
+
+                boosterToApply = request.hasCustomBooster()
+                        ? request.getCustomBooster()
+                        : new Booster(type, targetMultiplier, request.getDurationSeconds());
+                boosters.add(boosterToApply);
+                sortByExpiry(boosters);
+                result = BoosterActivationResult.created(request, boosterToApply,
+                        "Đã kích hoạt booster " + type.name().toLowerCase() + " x" + boosterToApply.getMultiplier());
+            }
+        }
+
+        if (!result.isSuccess()) {
+            return result;
+        }
+
+        BoosterRequest snapshot = request.withCustomBooster(boosterToApply);
+        storeMetadata(uuid, snapshot);
+        invalidatePlayerCache(uuid);
+
+        if (request.isSaveToStorage()) {
+            persistPlayerStateAsync(uuid);
+        }
+
+        Player online = Bukkit.getPlayer(uuid);
+        if (online != null && online.isOnline()) {
+            updateBossbar(online);
+            lastBossBarUpdate.put(uuid, System.currentTimeMillis());
+        }
+
+        if (result.getMessage() != null && !result.getMessage().isEmpty()) {
+            plugin.getLogger().info("[Booster] " + player.getName() + ": " + result.getMessage());
+        }
+
+        return result;
+    }
+
+    private BoosterStackingStrategy resolveStackingStrategy(BoosterRequest request) {
+        if (request.getStackingStrategy() != null) {
+            return request.getStackingStrategy();
+        }
+        String configured = plugin.getBoosterConfig().getString("settings.default-stack-strategy", "SMART");
+        return BoosterStackingStrategy.fromString(configured);
+    }
+
+    private void sortByExpiry(List<Booster> boosters) {
+        boosters.sort(Comparator.comparingLong(Booster::getEndTime));
+    }
+
+    private void storeMetadata(UUID uuid, BoosterRequest request) {
+        boosterMetadata.computeIfAbsent(uuid, id -> new ConcurrentHashMap<>())
+                .put(request.getType(), request);
+    }
+
+    public Optional<BoosterRequest> getBoosterMetadata(UUID uuid, BoosterType type) {
+        Map<BoosterType, BoosterRequest> map = boosterMetadata.get(uuid);
+        if (map == null) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(map.get(type));
+    }
+
+    private void removeMetadata(UUID uuid, BoosterType type) {
+        Map<BoosterType, BoosterRequest> map = boosterMetadata.get(uuid);
+        if (map == null) {
+            return;
+        }
+        map.remove(type);
+        if (map.isEmpty()) {
+            boosterMetadata.remove(uuid);
+        }
+    }
+
+    private void persistPlayerStateAsync(UUID uuid) {
+        if (uuid == null || isShuttingDown.get()) {
+            return;
+        }
+
+        List<Booster> snapshot;
+        synchronized (activeBoosters) {
+            List<Booster> list = activeBoosters.getOrDefault(uuid, Collections.emptyList());
+            snapshot = new ArrayList<>();
+            for (Booster booster : list) {
+                if (!booster.isExpired()) {
+                    snapshot.add(new Booster(booster.getType(), booster.getMultiplier(), booster.getStartTime(), booster.getEndTime()));
+                }
+            }
+        }
+
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            try {
+                Map<UUID, List<Booster>> data = new HashMap<>();
+                data.put(uuid, snapshot);
+                plugin.getBoosterStorage().saveBoosters(data);
+            } catch (Exception e) {
+                plugin.getLogger().log(Level.SEVERE, "❌ Lỗi lưu boosters cho " + uuid, e);
+            }
+        });
+    }
+
+    private String describeBooster(Booster booster) {
+        if (booster == null) {
+            return "unknown";
+        }
+        return booster.getType().getIcon() + " " + booster.getType().name().toLowerCase() + " x"
+                + String.format(Locale.US, "%.1f", booster.getMultiplier())
+                + " (" + booster.formatTimeLeft(Booster.TimeFormat.COMPACT) + ")";
+    }
+
     private void startTasks() {
         // Task update mỗi 5 giây thay vì mỗi giây
         updateTask = new BukkitRunnable() {
@@ -69,8 +309,29 @@ public class BoosterManager {
                 Map<UUID, List<Booster>> loaded = storage.loadBoosters();
                 
                 Bukkit.getScheduler().runTask(plugin, () -> {
-                    activeBoosters.putAll(loaded);
+                    activeBoosters.clear();
+                    boosterMetadata.clear();
+
+                    loaded.forEach((uuid, boosters) -> {
+                        List<Booster> sorted = new ArrayList<>(boosters);
+                        sortByExpiry(sorted);
+                        activeBoosters.put(uuid, sorted);
+
+                        Map<BoosterType, BoosterRequest> metadataMap = boosterMetadata.computeIfAbsent(uuid, id -> new ConcurrentHashMap<>());
+                        for (Booster booster : sorted) {
+                            metadataMap.put(booster.getType(), BoosterRequest.fromExistingBooster(booster, BoosterSource.PERSISTED));
+                        }
+                    });
+
                     invalidateAllCaches();
+
+                    Bukkit.getOnlinePlayers().forEach(player -> {
+                        List<Booster> boosters = activeBoosters.get(player.getUniqueId());
+                        if (boosters != null && !boosters.isEmpty()) {
+                            updateBossbar(player);
+                        }
+                    });
+
                     plugin.getLogger().info("Đã load " + loaded.size() + " booster từ database");
                 });
                 
@@ -81,10 +342,12 @@ public class BoosterManager {
     }
     
     // Sửa tất cả các chỗ tạo BoosterStorage mới
+    @Deprecated(forRemoval = false)
     public void saveBooster(UUID playerUUID, Booster booster) {
-        // Sử dụng instance có sẵn
-        BoosterStorage storage = EnchantMaterial.getInstance().getBoosterStorage();
-        storage.saveBooster(playerUUID, booster);
+        if (playerUUID == null) {
+            return;
+        }
+        persistPlayerStateAsync(playerUUID);
     }
     
     public CompletableFuture<List<Booster>> getPlayerBoostersAsync(UUID playerUUID) {
@@ -94,50 +357,66 @@ public class BoosterManager {
     }
     
     /**
-     * Thêm booster với validation và error handling
+     * Thêm booster theo cơ chế cũ (giữ lại vì tương thích).
      */
+    @Deprecated(forRemoval = false)
     public boolean addBooster(Player player, Booster booster) {
         if (player == null || booster == null) {
             plugin.getLogger().warning("Null player hoặc booster trong addBooster");
             return false;
         }
-        
+
         if (isShuttingDown.get()) {
             plugin.getLogger().warning("Không thể thêm booster khi plugin đang tắt");
             return false;
         }
-        
+
         UUID uuid = player.getUniqueId();
-        
+        boolean inserted = false;
+
         synchronized (activeBoosters) {
             activeBoosters.putIfAbsent(uuid, new ArrayList<>());
             List<Booster> list = activeBoosters.get(uuid);
-            
-            // Kiểm tra trùng loại
-            for (Booster b : list) {
-                if (b.getType() == booster.getType()) {
+            list.removeIf(Booster::isExpired);
+
+            Optional<Booster> sameType = list.stream()
+                    .filter(b -> b.getType() == booster.getType())
+                    .findFirst();
+
+            if (sameType.isPresent()) {
+                Booster existing = sameType.get();
+                if (!existing.equals(booster)) {
                     plugin.getLogger().info("Player " + player.getName() + " đã có booster loại " + booster.getType());
                     return false;
                 }
+            } else {
+                int maxBoosters = plugin.getBoosterConfig().getInt("settings.max-per-player", 3);
+                if (list.size() >= maxBoosters) {
+                    plugin.getLogger().info("Player " + player.getName() + " đã đạt giới hạn booster (" + maxBoosters + ")");
+                    return false;
+                }
+
+                list.add(booster);
+                sortByExpiry(list);
+                inserted = true;
             }
-            
-            // Kiểm tra giới hạn
-            int maxBoosters = plugin.getBoosterConfig().getInt("settings.max-per-player", 3);
-            if (list.size() >= maxBoosters) {
-                plugin.getLogger().info("Player " + player.getName() + " đã đạt giới hạn booster (" + maxBoosters + ")");
-                return false;
-            }
-            
-            list.add(booster);
-            invalidatePlayerCache(uuid);
-            
-            plugin.getLogger().info("Đã thêm booster " + booster.getType() + " x" + booster.getMultiplier() + " cho " + player.getName());
-            
-            // Update BossBar ngay lập tức
-            updateBossbar(player);
-            
-            return true;
         }
+
+        if (inserted || getBoosterMetadata(uuid, booster.getType()).isEmpty()) {
+            storeMetadata(uuid, BoosterRequest.fromExistingBooster(booster, BoosterSource.LEGACY));
+        }
+        invalidatePlayerCache(uuid);
+
+        if (player.isOnline()) {
+            updateBossbar(player);
+        }
+
+        if (inserted) {
+            persistPlayerStateAsync(uuid);
+            plugin.getLogger().info("Đã thêm booster " + booster.getType() + " x" + booster.getMultiplier() + " cho " + player.getName());
+        }
+
+        return true;
     }
     
     /**
@@ -265,30 +544,31 @@ public class BoosterManager {
      */
     public String getDetailedBoosterInfo(Player player) {
         if (player == null) return "§cKhông có thông tin";
-        
+
         StringBuilder info = new StringBuilder();
         info.append("§6§l=== THÔNG TIN BOOSTER ===\n");
-        
+
         UUID uuid = player.getUniqueId();
-        
+        List<Booster> boosters = getBoosters(uuid);
+
         for (BoosterType type : BoosterType.values()) {
             info.append("\n§e").append(type.getIcon()).append(" ").append(type.getVietnameseName()).append(":\n");
-            
-            // Personal Boosters
-            List<Booster> personalBoosters = activeBoosters.getOrDefault(uuid, Collections.emptyList())
-                    .stream().filter(b -> b.getType() == type && !b.isExpired()).toList();
-            
+
+            List<Booster> personalBoosters = boosters.stream()
+                    .filter(b -> b.getType() == type)
+                    .toList();
+
             if (!personalBoosters.isEmpty()) {
-                info.append("  §a✓ Personal: ");
-                for (Booster b : personalBoosters) {
-                    info.append("§fx").append(String.format("%.1f", b.getMultiplier()))
-                        .append(" §7(").append(b.formatTimeLeft()).append(") ");
+                for (Booster booster : personalBoosters) {
+                    info.append("  §8▪ §f").append(booster.getType().getIcon()).append(" x")
+                            .append(String.format(Locale.US, "%.1f", booster.getMultiplier()))
+                            .append(" §7Còn: §f").append(booster.formatTimeLeft())
+                            .append(" §7| Tổng: §f").append(booster.getTotalDurationSeconds()).append("s\n");
                 }
-                info.append("\n");
             } else {
                 info.append("  §7○ Personal: §fx1.0\n");
             }
-            
+
             // Global Booster
             double globalMultiplier = getGlobalBoosterMultiplier(type);
             if (globalMultiplier > 1.0) {
@@ -306,13 +586,23 @@ public class BoosterManager {
             }
             
             // Tổng cộng
-            double total = getCachedMultiplier(uuid, type, 
+            double total = getCachedMultiplier(uuid, type,
                 type == BoosterType.POINTS ? pointsMultiplierCache :
                 type == BoosterType.DROP ? dropMultiplierCache : expMultiplierCache);
-            
+
             info.append("  §6§l➤ Tổng cộng: §f§lx").append(String.format("%.1f", total)).append("\n");
+
+            getBoosterMetadata(uuid, type).ifPresent(metadata -> {
+                if (metadata.getSource() != BoosterSource.UNKNOWN) {
+                    info.append("  §7Nguồn: §f").append(metadata.getSource().getDisplayName()).append("\n");
+                }
+                if (metadata.getNote() != null && !metadata.getNote().isBlank()) {
+                    info.append("  §7Ghi chú: §f").append(metadata.getNote()).append("\n");
+                }
+                info.append("  §7Chiến lược: §f").append(metadata.getStackingStrategy().getDisplayName()).append("\n");
+            });
         }
-        
+
         return info.toString();
     }
     
@@ -362,19 +652,30 @@ public class BoosterManager {
                 UUID uuid = entry.getKey();
                 List<Booster> boosters = entry.getValue();
                 
-                // Remove expired boosters
-                boolean hadExpired = boosters.removeIf(Booster::isExpired);
-                
+                List<BoosterType> expiredTypes = new ArrayList<>();
+                for (Booster booster : boosters) {
+                    if (booster.isExpired()) {
+                        expiredTypes.add(booster.getType());
+                    }
+                }
+
+                boolean hadExpired = !expiredTypes.isEmpty();
+                if (hadExpired) {
+                    boosters.removeIf(Booster::isExpired);
+                }
+
                 if (boosters.isEmpty()) {
-                    // Cleanup player data
                     cleanupPlayer(uuid);
                     iterator.remove();
                     continue;
                 }
-                
-                // Invalidate cache nếu có booster hết hạn
+
+                sortByExpiry(boosters);
+
                 if (hadExpired) {
+                    expiredTypes.forEach(type -> removeMetadata(uuid, type));
                     invalidatePlayerCache(uuid);
+                    persistPlayerStateAsync(uuid);
                 }
                 
                 // Update BossBar (chỉ khi cần thiết)
@@ -398,64 +699,96 @@ public class BoosterManager {
      */
     public void updateBossbar(Player player) {
         if (player == null || !player.isOnline()) return;
-        
+
+        if (!plugin.getBoosterConfig().getBoolean("bossbar.show-bossbar", true)) {
+            cleanupPlayer(player.getUniqueId());
+            return;
+        }
+
         UUID uuid = player.getUniqueId();
-        List<Booster> list = activeBoosters.getOrDefault(uuid, new ArrayList<>());
-        
-        // Remove expired boosters
-        list.removeIf(Booster::isExpired);
-        
-        // Không còn booster → ẩn bossbar
-        if (list.isEmpty()) {
+        List<Booster> boosters;
+
+        synchronized (activeBoosters) {
+            List<Booster> list = activeBoosters.get(uuid);
+            if (list == null) {
+                boosters = Collections.emptyList();
+            } else {
+                list.removeIf(Booster::isExpired);
+                if (list.isEmpty()) {
+                    activeBoosters.remove(uuid);
+                    boosters = Collections.emptyList();
+                } else {
+                    sortByExpiry(list);
+                    boosters = new ArrayList<>(list);
+                }
+            }
+        }
+
+        if (boosters.isEmpty()) {
             cleanupPlayer(uuid);
             return;
         }
-        
+
         try {
-            // Tạo title
-            String title = createBossBarTitle(list);
-            BarColor color = determineBossBarColor(list);
-            BarStyle style = determineBossBarStyle(list.size());
-            
-            // Get hoặc tạo BossBar
+            String title = createBossBarTitle(boosters);
+            BarColor color = determineBossBarColor(boosters);
+            BarStyle style = determineBossBarStyle(boosters.size());
+
             BossBar bar = playerBars.computeIfAbsent(uuid, id -> {
                 BossBar newBar = Bukkit.createBossBar("", color, style);
                 newBar.addPlayer(player);
                 return newBar;
             });
-            
-            // Update properties
+
             bar.setColor(color);
             bar.setStyle(style);
             bar.setTitle(ChatColor.translateAlternateColorCodes('&', title));
-            
-            // Progress dựa trên thời gian còn lại của booster sắp hết hạn nhất
-            double progress = calculateBossBarProgress(list);
+
+            double progress = calculateBossBarProgress(boosters);
             bar.setProgress(Math.max(0.0, Math.min(1.0, progress)));
-            
+
         } catch (Exception e) {
             plugin.getLogger().log(Level.WARNING, "Lỗi update BossBar cho " + player.getName(), e);
         }
     }
     
     private String createBossBarTitle(List<Booster> boosters) {
+        BoosterConfigurationWrapper wrapper = new BoosterConfigurationWrapper(plugin.getBoosterConfig());
+
         if (boosters.size() == 1) {
-            Booster b = boosters.get(0);
-            return plugin.getConfig().getString("bossbar.single.title", "&aBooster: &f%type% x%multiplier% &7(%time%)")
-                    .replace("%type%", b.getType().name())
-                    .replace("%multiplier%", String.format("%.1f", b.getMultiplier()))
-                    .replace("%time%", b.formatTimeLeft());
-        } else {
-            Booster b1 = boosters.get(0);
-            Booster b2 = boosters.get(1);
-            return plugin.getConfig().getString("bossbar.multiple.title", "&b%type1% x%multiplier1% &7(%time1%) &8| &a%type2% x%multiplier2% &7(%time2%)")
-                    .replace("%type1%", b1.getType().name())
-                    .replace("%multiplier1%", String.format("%.1f", b1.getMultiplier()))
-                    .replace("%time1%", b1.formatTimeLeft())
-                    .replace("%type2%", b2.getType().name())
-                    .replace("%multiplier2%", String.format("%.1f", b2.getMultiplier()))
-                    .replace("%time2%", b2.formatTimeLeft());
+            Booster booster = boosters.get(0);
+            return wrapper.singleTitle()
+                    .replace("%type%", booster.getType().getFormattedName())
+                    .replace("%multiplier%", String.format(Locale.US, "%.1f", booster.getMultiplier()))
+                    .replace("%time%", booster.formatTimeLeft());
         }
+
+        Booster first = boosters.get(0);
+        Booster second = boosters.size() > 1 ? boosters.get(1) : first;
+
+        String base;
+        if (boosters.size() == 2) {
+            base = wrapper.doubleTitle();
+        } else {
+            base = wrapper.multiTitle();
+        }
+
+        base = base
+                .replace("%type1%", first.getType().getFormattedName())
+                .replace("%multiplier1%", String.format(Locale.US, "%.1f", first.getMultiplier()))
+                .replace("%time1%", first.formatTimeLeft())
+                .replace("%type2%", second.getType().getFormattedName())
+                .replace("%multiplier2%", String.format(Locale.US, "%.1f", second.getMultiplier()))
+                .replace("%time2%", second.formatTimeLeft());
+
+        if (boosters.size() > 2) {
+            int remaining = boosters.size() - 2;
+            base = base.replace("%more%", wrapper.multiMoreFormat().replace("%count%", String.valueOf(remaining)));
+        } else {
+            base = base.replace("%more%", "");
+        }
+
+        return base;
     }
     
     private BarColor determineBossBarColor(List<Booster> boosters) {
@@ -477,15 +810,11 @@ public class BoosterManager {
     private double calculateBossBarProgress(List<Booster> boosters) {
         if (boosters.isEmpty()) return 0.0;
         
-        // Tìm booster có thời gian còn lại ít nhất
         Booster shortest = boosters.stream()
-                .min(Comparator.comparing(Booster::getRemainingMillis))
+                .min(Comparator.comparingLong(Booster::getRemainingMillis))
                 .orElse(boosters.get(0));
-        
-        long remaining = shortest.getRemainingMillis();
-        long total = plugin.getBoosterConfig().getLong("settings.default-duration", 3600) * 1000; // 1 giờ default
-        
-        return Math.min(1.0, (double) remaining / total);
+
+        return shortest.getRemainingRatio();
     }
     
     private void cleanupPlayer(UUID uuid) {
@@ -495,6 +824,7 @@ public class BoosterManager {
         }
         lastBossBarUpdate.remove(uuid);
         invalidatePlayerCache(uuid);
+        boosterMetadata.remove(uuid);
     }
     
     private void invalidatePlayerCache(UUID uuid) {
@@ -522,11 +852,7 @@ public class BoosterManager {
         
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
             try {
-                BoosterStorage storage = new BoosterStorage(plugin);
-                storage.saveBoosters(toSave);
-                storage.close();
-                
-              //  plugin.getLogger().info("✅ Đã save " + toSave.size() + " booster vào database");
+                plugin.getBoosterStorage().saveBoosters(toSave);
             } catch (Exception e) {
                 plugin.getLogger().log(Level.SEVERE, "❌ Lỗi save boosters", e);
             }
@@ -547,11 +873,23 @@ public class BoosterManager {
     }
     
     public List<Booster> getBoosters(UUID uuid) {
-        if (uuid == null) return new ArrayList<>();
-        
-        List<Booster> list = activeBoosters.getOrDefault(uuid, new ArrayList<>());
-        list.removeIf(Booster::isExpired);
-        return new ArrayList<>(list);
+        if (uuid == null) {
+            return new ArrayList<>();
+        }
+
+        synchronized (activeBoosters) {
+            List<Booster> list = activeBoosters.get(uuid);
+            if (list == null) {
+                return new ArrayList<>();
+            }
+            list.removeIf(Booster::isExpired);
+            if (list.isEmpty()) {
+                activeBoosters.remove(uuid);
+                return new ArrayList<>();
+            }
+            sortByExpiry(list);
+            return new ArrayList<>(list);
+        }
     }
     
     public boolean removeBooster(UUID uuid, BoosterType type) {
@@ -562,14 +900,17 @@ public class BoosterManager {
             if (list == null || list.isEmpty()) return false;
             
             boolean removed = list.removeIf(b -> b.getType() == type);
-            
+
             if (removed) {
+                removeMetadata(uuid, type);
                 invalidatePlayerCache(uuid);
-                
+                persistPlayerStateAsync(uuid);
+
                 if (list.isEmpty()) {
                     cleanupPlayer(uuid);
                     activeBoosters.remove(uuid);
                 } else {
+                    sortByExpiry(list);
                     Player player = Bukkit.getPlayer(uuid);
                     if (player != null && player.isOnline()) {
                         updateBossbar(player);
@@ -596,7 +937,7 @@ public class BoosterManager {
      */
     public void shutdown() {
         isShuttingDown.set(true);
-        
+
         // Cancel tasks
         if (updateTask != null) {
             updateTask.cancel();
@@ -607,9 +948,7 @@ public class BoosterManager {
         
         // Save boosters synchronously
         try {
-            BoosterStorage storage = new BoosterStorage(plugin);
-            storage.saveBoosters(getAllBoosters());
-            storage.close();
+            plugin.getBoosterStorage().saveBoosters(getAllBoosters());
             plugin.getLogger().info("✅ Đã save boosters trước khi tắt plugin");
         } catch (Exception e) {
             plugin.getLogger().log(Level.SEVERE, "❌ Lỗi save boosters khi shutdown", e);
@@ -624,7 +963,31 @@ public class BoosterManager {
         // Clear caches
         invalidateAllCaches();
         activeBoosters.clear();
-        
+
         plugin.getLogger().info("✅ BoosterManager đã shutdown hoàn tất");
+    }
+
+    private static class BoosterConfigurationWrapper {
+        private final FileConfiguration config;
+
+        private BoosterConfigurationWrapper(FileConfiguration config) {
+            this.config = config;
+        }
+
+        private String singleTitle() {
+            return config.getString("bossbar.single.title", "&aBooster: &f%type% x%multiplier% &7(%time%)");
+        }
+
+        private String doubleTitle() {
+            return config.getString("bossbar.double.title", "&b%type1% x%multiplier1% &7(%time1%) &8| &a%type2% x%multiplier2% &7(%time2%)");
+        }
+
+        private String multiTitle() {
+            return config.getString("bossbar.multi.title", "&b%type1% x%multiplier1% &7(%time1%) &8| &a%type2% x%multiplier2% &7(%time2%)%more%");
+        }
+
+        private String multiMoreFormat() {
+            return config.getString("bossbar.multi.more-format", " &7(+%count% booster khác)");
+        }
     }
 }

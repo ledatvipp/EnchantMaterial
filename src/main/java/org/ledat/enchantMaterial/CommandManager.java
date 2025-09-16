@@ -12,12 +12,17 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.ledat.enchantMaterial.booster.Booster;
+import org.ledat.enchantMaterial.booster.BoosterActivationResult;
 import org.ledat.enchantMaterial.booster.BoosterManager;
+import org.ledat.enchantMaterial.booster.BoosterRequest;
+import org.ledat.enchantMaterial.booster.BoosterSource;
+import org.ledat.enchantMaterial.booster.BoosterStackingStrategy;
 import org.ledat.enchantMaterial.booster.BoosterType;
 
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 public class CommandManager implements CommandExecutor {
@@ -229,14 +234,15 @@ public class CommandManager implements CommandExecutor {
         sender.sendMessage("§6=== Booster Commands ===");
         
         if (sender.hasPermission("enchantmaterial.admin")) {
-            sender.sendMessage("§e/em booster start <player> <type> <multiplier> <seconds>");
+            sender.sendMessage("§e/em booster start <player> <type> <multiplier> <seconds> [mode]");
             sender.sendMessage("§e/em booster list <player> §7- Xem booster của người chơi");
             sender.sendMessage("§e/em booster stop <type> [player] §7- Dừng booster");
         } else {
             sender.sendMessage("§e/em booster stop <type> §7- Dừng booster của bạn");
         }
-        
+
         sender.sendMessage("§7Types: §fpoints, drop, exp");
+        sender.sendMessage("§7Modes: §fsmart, extend, replace, strict");
     }
 
     private boolean handleBoosterStart(CommandSender sender, String[] args, BoosterManager boosterManager) {
@@ -246,7 +252,7 @@ public class CommandManager implements CommandExecutor {
         }
 
         if (args.length < 6) {
-            sender.sendMessage("§cSử dụng: /em booster start <player> <type> <multiplier> <seconds>");
+            sender.sendMessage("§cSử dụng: /em booster start <player> <type> <multiplier> <seconds> [mode]");
             return true;
         }
 
@@ -270,12 +276,12 @@ public class CommandManager implements CommandExecutor {
         try {
             multiplier = Double.parseDouble(args[4]);
             duration = Integer.parseInt(args[5]);
-            
+
             if (multiplier <= 0) {
                 sender.sendMessage("§cHệ số nhân phải lớn hơn 0!");
                 return true;
             }
-            
+
             if (duration <= 0) {
                 sender.sendMessage("§cThời gian phải lớn hơn 0!");
                 return true;
@@ -285,28 +291,60 @@ public class CommandManager implements CommandExecutor {
             return true;
         }
 
-        List<Booster> current = boosterManager.getBoosters(target.getUniqueId());
+        BoosterStackingStrategy stackingStrategy = args.length >= 7
+                ? BoosterStackingStrategy.fromString(args[6])
+                : BoosterStackingStrategy.SMART;
 
-        if (current.stream().anyMatch(b -> b.getType() == type)) {
-            sender.sendMessage("§cNgười chơi này đã có booster loại " + type.name().toLowerCase() + ".");
+        BoosterRequest.Builder builder = BoosterRequest.builder(type)
+                .multiplier(multiplier)
+                .durationSeconds(duration)
+                .stackingStrategy(stackingStrategy)
+                .source(BoosterSource.ADMIN_COMMAND)
+                .note("Kích hoạt bởi " + sender.getName())
+                .saveToStorage(true);
+
+        if (sender.hasPermission("enchantmaterial.booster.bypasslimit") || sender.hasPermission("enchantmaterial.admin")) {
+            builder.bypassLimit(true);
+        }
+
+        BoosterActivationResult result = boosterManager.processBoosterRequest(target, builder.build());
+
+        if (!result.isSuccess()) {
+            String reason = result.getMessage() != null ? result.getMessage() : result.getFailureReason().getDefaultMessage();
+            sender.sendMessage("§c" + reason);
             return true;
         }
 
-        int max = EnchantMaterial.getInstance().getConfig().getInt("booster.max_per_player", 2);
-        if (current.size() >= max) {
-            sender.sendMessage("§cNgười chơi đã có tối đa " + max + " booster.");
-            return true;
+        BoosterActivationResult.Status status = result.getStatus();
+        Booster activeBooster = result.getBooster();
+        Booster previous = result.getPreviousBooster();
+
+        switch (status) {
+            case CREATED -> {
+                sender.sendMessage("§a✓ Đã kích hoạt booster " + type.name().toLowerCase() + " x" + multiplier +
+                        " cho " + target.getName() + " trong " + duration + " giây (§7" + stackingStrategy.getDisplayName() + "§a)");
+                target.sendMessage("§e✨ Bạn nhận được booster §f" + type.name().toLowerCase() + " x" + multiplier +
+                        " §etrong §f" + duration + "§e giây!");
+            }
+            case EXTENDED -> {
+                long addedSeconds = result.getAdditionalDurationSeconds();
+                sender.sendMessage("§a✓ Đã cộng thêm §f" + addedSeconds + "s §acho booster " + type.name().toLowerCase() + " của " + target.getName());
+                target.sendMessage("§e⏳ Booster §f" + type.name().toLowerCase() + " §ecủa bạn được kéo dài thêm §f" + addedSeconds + "§e giây!");
+            }
+            case REPLACED -> {
+                double oldMultiplier = previous != null ? previous.getMultiplier() : multiplier;
+                sender.sendMessage("§a✓ Đã nâng cấp booster " + type.name().toLowerCase() + " của " + target.getName() +
+                        " từ x" + String.format(Locale.US, "%.1f", oldMultiplier) + " lên x" + String.format(Locale.US, "%.1f", activeBooster.getMultiplier()) +
+                        " trong " + activeBooster.getTimeLeftSeconds() + " giây");
+                target.sendMessage("§e⚡ Booster §f" + type.name().toLowerCase() + " §eđược nâng cấp lên §fx" +
+                        String.format(Locale.US, "%.1f", activeBooster.getMultiplier()) + "§e!");
+            }
+            case QUEUED -> {
+                sender.sendMessage("§eBooster đã được xếp hàng và sẽ kích hoạt sau khi booster hiện tại kết thúc.");
+                target.sendMessage("§e✨ Booster mới của bạn sẽ tự động kích hoạt sau khi booster hiện tại kết thúc!");
+            }
         }
 
-        Booster booster = new Booster(type, multiplier, duration);
-        boolean added = boosterManager.addBooster(target, booster);
-
-        if (added) {
-            sender.sendMessage("§a✓ Đã kích hoạt booster " + type.name().toLowerCase() + " x" + multiplier + " cho " + target.getName() + " trong " + duration + " giây");
-            target.sendMessage("§e✨ Bạn nhận được booster §f" + type.name().toLowerCase() + " x" + multiplier + " §etrong §f" + duration + "§e giây!");
-        } else {
-            sender.sendMessage("§cKhông thể kích hoạt booster.");
-        }
         return true;
     }
 
@@ -386,7 +424,21 @@ public class CommandManager implements CommandExecutor {
         } else {
             sender.sendMessage("§a📋 Booster của §f" + target.getName() + ":");
             for (Booster b : boosters) {
-                sender.sendMessage("§8  ▪ §f" + b.getType().name().toLowerCase() + " x" + b.getMultiplier() + " §7(" + b.formatTimeLeft() + ")");
+                StringBuilder line = new StringBuilder("§8  ▪ §f")
+                        .append(b.getType().getIcon()).append(" ")
+                        .append(b.getType().name().toLowerCase()).append(" x")
+                        .append(String.format(Locale.US, "%.1f", b.getMultiplier()))
+                        .append(" §7(").append(b.formatTimeLeft()).append(")");
+
+                boosterManager.getBoosterMetadata(target.getUniqueId(), b.getType()).ifPresent(metadata -> {
+                    line.append(" §7[").append(metadata.getStackingStrategy().getDisplayName());
+                    if (metadata.getSource() != BoosterSource.UNKNOWN) {
+                        line.append(" · ").append(metadata.getSource().getDisplayName());
+                    }
+                    line.append(']');
+                });
+
+                sender.sendMessage(line.toString());
             }
         }
         return true;
