@@ -11,13 +11,15 @@ import org.ledat.enchantMaterial.booster.Booster;
 import org.ledat.enchantMaterial.rebirth.RebirthData;
 import org.ledat.enchantMaterial.rebirth.RebirthManager;
 
-import java.util.*;
-import java.util.stream.Collectors;
 import java.text.SimpleDateFormat;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 public class EnchantMaterialPlaceholder extends PlaceholderExpansion {
 
     private final EnchantMaterial plugin;
+    private static final Set<UUID> LOADING_PLAYERS = ConcurrentHashMap.newKeySet();
 
     public EnchantMaterialPlaceholder(EnchantMaterial plugin) {
         this.plugin = plugin;
@@ -40,17 +42,25 @@ public class EnchantMaterialPlaceholder extends PlaceholderExpansion {
 
     @Override
     public String onRequest(OfflinePlayer player, @NotNull String params) {
-        PlayerData data;
-        try {
-            data = DatabaseManager.getPlayerDataAsync(player.getUniqueId()).get();
-        } catch (Exception e) {
-            return "N/A";
+        if (player == null || player.getUniqueId() == null) {
+            return "";
         }
 
-        double points = data.getPoints();
-        int level = data.getLevel();
-        BoosterManager manager = EnchantMaterial.getInstance().getBoosterManager();
         UUID uuid = player.getUniqueId();
+        PlayerData data = DatabaseManager.getCached(uuid);
+
+        if (data == null && LOADING_PLAYERS.add(uuid)) {
+            DatabaseManager.getPlayerDataAsync(uuid).whenComplete((result, error) -> {
+                LOADING_PLAYERS.remove(uuid);
+                if (error != null) {
+                    plugin.getLogger().warning("Failed to pre-load data for " + uuid + ": " + error.getMessage());
+                }
+            });
+        }
+
+        double points = data != null ? data.getPoints() : 0.0;
+        int level = data != null ? data.getLevel() : 1;
+        BoosterManager manager = EnchantMaterial.getInstance().getBoosterManager();
         List<Double> levelRequests = plugin.getConfig().getDoubleList("level-request");
 
         double nextLevelPoints = (level < levelRequests.size()) ? levelRequests.get(level) : -1;
