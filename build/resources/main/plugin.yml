@@ -1,0 +1,22 @@
+name: EnchantMaterial
+version: '2.1-optimized'
+main: org.ledat.enchantMaterial.EnchantMaterial
+api-version: '1.20'
+authors: [ zonecluck ]
+website: facebook.com/zonecluck
+depend:
+  - Vault
+softdepend:
+  - PlaceholderAPI
+commands:
+  enchantmaterial:
+    description: Manage EnchantMaterial plugin.
+    usage: /<command> [level|add|reload|booster|rewards]
+    aliases: [em]
+permissions:
+  enchantmaterial.admin:
+    default: op
+    description: Admin permission to bypass restrictions and use admin commands.
+  enchantmaterial.rewards:
+    default: true
+    description: Permission to use rewards GUI.

@@ -1,0 +1,180 @@
+rebirth:
+  gui:
+    title: "&6&lCHUYỂN SINH"
+    size: 54
+    fill-border: true
+    confirm-rebirth: true
+    
+    border:
+      material: "GRAY_STAINED_GLASS_PANE"
+      name: " "
+    
+    decoration:
+      corner1:
+        material: "YELLOW_STAINED_GLASS_PANE"
+        name: "&e&l✦"
+        lore:
+          - "&7Trang trí"
+        slots: [10, 16, 37, 43]
+      
+      corner2:
+        material: "ORANGE_STAINED_GLASS_PANE"
+        name: "&6&l❋"
+        lore: []
+        slots: [19, 25]
+    
+    info-item:
+      slot: 4
+      material: "PLAYER_HEAD"
+      name: "&e&l%player%"
+      lore:
+        - "&fThông tin chuyển sinh của bạn"
+        - ""
+        - "&7Cấp chuyển sinh: &f%rebirth_level%"
+        - "&7Level hiện tại: &f%current_level%"
+        - "&7Điểm: &f%points%"
+        - "&7Tiền: &f%money%"
+    
+    close-button:
+      slot: 49
+      material: "BARRIER"
+      name: "&c&lĐóng"
+      lore:
+        - "&7Click để đóng GUI"
+    
+    rebirth-items:
+      level1:
+        level: 1
+        slot: 20
+        available:
+          material: "DIAMOND"
+          name: "&e&lChuyển Sinh Cấp %level%"
+          lore:
+            - "&7Click để thực hiện chuyển sinh!"
+            - ""
+            - "&a&lQuyền lợi:"
+            - "&7- Mở khóa khu vực mới"
+            - "&7- Tăng 10% EXP"
+            - "&7- Nhận title đặc biệt"
+        completed:
+          material: "EMERALD"
+          name: "&a&lChuyển Sinh Cấp %level%"
+          lore:
+            - "&a✓ Đã hoàn thành!"
+            - "&7Thời gian hoàn thành: %time%"
+        locked:
+          material: "REDSTONE"
+          name: "&c&lChuyển Sinh Cấp %level%"
+          lore:
+            - "&c✗ Chưa đủ điều kiện!"
+      
+      level2:
+        level: 2
+        slot: 21
+        available:
+          material: "NETHERITE_INGOT"
+          name: "&e&lChuyển Sinh Cấp %level%"
+          lore:
+            - "&7Click để thực hiện chuyển sinh!"
+            - "&c&lCảnh báo: Có thể thất bại!"
+        completed:
+          material: "EMERALD"
+          name: "&a&lChuyển Sinh Cấp %level%"
+          lore:
+            - "&a✓ Đã hoàn thành!"
+        locked:
+          material: "BARRIER"
+          name: "&8&lChuyển Sinh Cấp %level%"
+          lore:
+            - "&c✗ Chưa mở khóa!"
+      
+      level3:
+        level: 3
+        slot: 22
+        available:
+          material: "NETHER_STAR"
+          name: "&e&lChuyển Sinh Cấp %level%"
+          lore:
+            - "&7Click để thực hiện chuyển sinh!"
+            - "&c&lRủi ro cao!"
+        completed:
+          material: "EMERALD"
+          name: "&a&lChuyển Sinh Cấp %level%"
+          lore:
+            - "&a✓ Đã hoàn thành!"
+        locked:
+          material: "BARRIER"
+          name: "&8&lChuyển Sinh Cấp %level%"
+          lore:
+            - "&c✗ Chưa mở khóa!"
+  
+  confirmation-gui:
+    title: "&c&lXác Nhận Chuyển Sinh"
+  
+  rebirth:
+    max-level: 10
+    
+    levels:
+      1:
+        required-level: 50
+        required-money: 1000000
+        required-items:
+          - material: "NETHERITE_INGOT"
+            amount: 16
+            custom-name: "&6Netherite Đặc Biệt"
+          - material: "DIAMOND"
+            amount: 64
+          - material: "EMERALD"
+            amount: 32
+        success-rate: 100.0
+        consume-on-fail: false
+        
+        rewards:
+          commands:
+            - "lp user %player% permission set rebirth.level1"
+            - "broadcast &6%player% &fđã chuyển sinh lên cấp &e%level%&f!"
+          items:
+            - material: "DIAMOND_SWORD"
+              amount: 1
+      
+      2:
+        required-level: 100
+        required-money: 5000000
+        required-items:
+          - material: "NETHERITE_INGOT"
+            amount: 16
+        success-rate: 70.0
+        consume-on-fail: true
+        
+        rewards:
+          commands:
+            - "lp user %player% permission set rebirth.level2"
+            - "broadcast &6%player% &fđã chuyển sinh lên cấp &e%level%&f!"
+          items:
+            - material: "NETHERITE_SWORD"
+              amount: 1
+      
+      3:
+        required-level: 200
+        required-money: 10000000
+        required-items:
+          - material: "NETHER_STAR"
+            amount: 5
+        success-rate: 50.0
+        consume-on-fail: true
+        
+        rewards:
+          commands:
+            - "lp user %player% permission set rebirth.level3"
+            - "broadcast &6%player% &fđã chuyển sinh lên cấp &e%level%&f!"
+          items:
+            - material: "ENCHANTED_GOLDEN_APPLE"
+              amount: 5
+  
+  messages:
+    rebirth-success: "&a✓ Chuyển sinh cấp %level% thành công!"
+    rebirth-fail: "&c✗ Chuyển sinh cấp %level% thất bại!"
+    cannot-rebirth: "&c✗ Bạn không thể chuyển sinh cấp này!"
+    not-enough-level: "&c✗ Bạn cần level %required% để chuyển sinh!"
+    not-enough-money: "&c✗ Bạn cần %required% tiền để chuyển sinh!"
+    not-enough-items: "&c✗ Bạn thiếu vật phẩm cần thiết!"

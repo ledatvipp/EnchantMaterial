@@ -1,0 +1,41 @@
+#%enchantmaterial_points% %enchantmaterial_level% %enchantmaterial_top%
+block-whitelist:
+  - type: COAL_ORE
+    score: 0.1-0.3
+    chance: 1.0
+  - type: DIAMOND_ORE
+    score: 0.5-1.0
+    chance: 0.1
+
+#Đã move qua config.yml
+level-request:
+  - '100.0'
+  - '150.0'
+  - '200.0'
+  # Các cấp tiếp theo...
+
+level-up-title:
+  enabled: true
+  title: "&aBạn đã lên cấp!"
+  subtitle: "&7Cấp tiếp theo: %next_level%"
+
+reward-on-level-up:
+  enabled: true
+  level:
+    1:
+      - 'eco give {player} 1'
+      - 'give diamond {player} 1'
+
+point-loss-on-death:
+  enabled: true
+  loss-per-death: 1  # Mỗi lần bị giết sẽ mất 1 điểm
+
+level-info-message:
+  enabled: true
+  message:
+    - "Thông tin cấp độ:"
+    - "Cấp độ hiện tại: {current_level}"
+    - "Điểm hiện tại: {current_points}"
+    - "Điểm cần thiết để lên cấp tiếp theo: {points_needed}"
+    - "Điểm cần để lên cấp {next_level}: {points_for_next_level}"
+    - "Bạn đã đạt cấp cao nhất: {max_level_reached}"

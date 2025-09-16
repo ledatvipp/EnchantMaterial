@@ -1,0 +1,31 @@
+perm-chance:
+  permission_prefix: enchantmaterial.luckychance.  # Tiền tố cho permission
+  values:
+    default: 0.1  # Tỷ lệ 10% cho người chơi có quyền "enchantmaterial.luckychance.default"
+    vip: 0.2
+    mvp: 0.3
+    elite: 0.4
+    god: 0.5
+    king: 0.6
+
+lucky-blocks:
+  enabled: true  # Bật/tắt tính năng
+  block-replace: # Những block sẽ được thay thế thành lucky block
+    - "COAL_ORE"
+    - "IRON_ORE"
+
+rewards:
+  COAL_ORE:
+    - type: money
+      amount: 50
+      chance: 50
+    - type: item
+      item: DIAMOND_SWORD
+      amount: 1
+      chance: 20
+    - type: command
+      command: "eco give {player} 100"
+      chance: 5
+    - type: money
+      amount: 1000
+      chance: 1

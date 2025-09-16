@@ -1,0 +1,85 @@
+level-rewards:
+  gui:
+    title: "&6&lLevel Rewards"
+    size: 54
+    items-per-page: 36
+    
+  border:
+    material: BLACK_STAINED_GLASS_PANE
+    name: " "
+    
+  navigation:
+    next-page:
+      slot: 53
+      material: LIME_STAINED_GLASS_PANE
+      name: "&a&lTrang tiếp theo"
+      lore:
+        - "&7Click để chuyển sang trang tiếp theo"
+    previous-page:
+      slot: 45
+      material: RED_STAINED_GLASS_PANE
+      name: "&c&lTrang trước"
+      lore:
+        - "&7Click để quay lại trang trước"
+        
+  reward-item:
+    claimed:
+      material: CHEST_MINECART
+      name: "&a&lLevel %level% - Đã nhận"
+      lore:
+        - "&7Phần thưởng level %level%"
+        - ""
+        - "&a✓ Đã nhận phần thưởng"
+    available:
+      material: CHEST_MINECART
+      name: "&e&lLevel %level% - Có thể nhận"
+      lore:
+        - "&7Phần thưởng level %level%"
+        - ""
+        - "&eClick để nhận phần thưởng!"
+    locked:
+      material: MINECART
+      name: "&c&lLevel %level% - Chưa đủ điều kiện"
+      lore:
+        - "&7Phần thưởng level %level%"
+        - ""
+        - "&cCần đạt level %level% để mở khóa"
+        - "&7Level hiện tại: &e%current_level%"
+
+rewards:
+  1:
+    commands:
+      - "give %player% diamond 5"
+      - "eco give %player% 1000"
+    items:
+      - "DIAMOND_SWORD:1:name:&6Kiếm Kim Cương Level 1:lore:&7Phần thưởng level 1"
+    custom-lore:
+      - "&7• 5x Kim cương"
+      - "&7• 1000 xu"
+      - "&7• Kiếm kim cương đặc biệt"
+  2:
+    commands:
+      - "give %player% emerald 10"
+      - "eco give %player% 2500"
+    items:
+      - "DIAMOND_PICKAXE:1:name:&6Cuốc Kim Cương Level 2:lore:&7Phần thưởng level 2"
+    custom-lore:
+      - "&7• 10x Ngọc lục bảo"
+      - "&7• 2500 xu"
+      - "&7• Cuốc kim cương đặc biệt"
+  3:
+    commands:
+      - "give %player% netherite_ingot 3"
+      - "eco give %player% 5000"
+    items:
+      - "NETHERITE_SWORD:1:name:&5Kiếm Netherite Level 3:lore:&7Phần thưởng level 3"
+    custom-lore:
+      - "&7• 3x Thỏi Netherite"
+      - "&7• 5000 xu"
+      - "&7• Kiếm Netherite huyền thoại"
+  
+messages:
+  reward-claimed: "&a&lBạn đã nhận phần thưởng level %level%!"
+  reward-already-claimed: "&c&lBạn đã nhận phần thưởng level %level% rồi!"
+  reward-not-available: "&c&lBạn chưa đủ level để nhận phần thưởng này!"
+  no-rewards-available: "&e&lKhông có phần thưởng nào khả dụng!"

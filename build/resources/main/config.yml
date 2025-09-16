@@ -1,0 +1,703 @@
+#Code bởi Lê Đạt
+#Code dành cho HeroMC
+
+#%enchantmaterial_booster_points%
+#%enchantmaterial_booster_drop%
+#%enchantmaterial_booster_time_points%
+#%enchantmaterial_booster_summary%
+#%enchantmaterial_booster_active_count%
+
+#%enchantmaterial_points%
+#%enchantmaterial_level%
+#%enchantmaterial_nextlevel%
+#%enchantmaterial_top%
+database:
+  url: jdbc:h2:./plugins/EnchantMaterial/data
+  user: sa
+  password: password
+  auto-save-interval: 300  # giây
+
+# ============================
+# Level System - v1.6
+# ============================
+
+pvp-protection:
+  enabled: true
+  multiplier: 0.5            # 0.5 = còn một nửa; bạn đổi 0.4, 0.25... tùy ý
+  bypass-permission: "enchantmaterial.pvpfull"  # ai có quyền này sẽ KHÔNG bị giảm
+
+block-whitelist:
+  - type: OAK_LOG
+    score: "0.1-0.2"
+    chance: 0.3
+    exp: "1"
+  - type: OAK_WOOD
+    score: "0.1-0.2"
+    chance: 0.4
+    exp: "1"
+  - type: COAL_ORE
+    score: "0.2-0.3"
+    chance: 0.4  # Tỷ lệ 100% khi đập khối than sẽ cộng random từ 0.1 đến 0.3 điểm
+    exp: "1-2"
+  - type: COAL_BLOCK
+    score: "0.3-0.5"
+    chance: 0.6
+    exp: "2-4"
+  - type: IRON_ORE
+    score: "0.2-0.5"
+    chance: 0.5
+    exp: "1-3"
+  - type: IRON_BLOCK
+    score: "0.5-0.7"
+    chance: 0.6
+    exp: "2-4"
+  - type: GOLD_ORE
+    score: "0.4-0.6"
+    chance: 0.6
+    exp: "1-4"
+  - type: GOLD_BLOCK
+    score: "0.6-0.9"
+    chance: 0.7
+    exp: "4-5"
+  - type: LAPIS_ORE
+    score: "0.2-0.5"
+    chance: 0.5
+    exp: "1-3"
+  - type: LAPIS_BLOCK
+    score: "0.4-0.7"
+    chance: 0.6
+    exp: "4-5"
+  - type: REDSTONE_ORE
+    score: "0.2-0.5"
+    chance: 0.6
+    exp: "1-3"
+  - type: REDSTONE_BLOCK
+    score: "0.4-0.8"
+    chance: 0.7
+    exp: "3-5"
+  - type: DIAMOND_ORE
+    score: "1.7-2.0"
+    chance: 0.6
+    exp: "4-8"
+  - type: DIAMOND_BLOCK
+    score: "1.5-2.5"
+    chance: 0.7
+    exp: "4-8"
+  - type: EMERALD_ORE
+    score: "1.5-2.5"
+    chance: 0.5
+    exp: "5-9"
+  - type: EMERALD_BLOCK
+    score: "1.5-2.7"
+    chance: 0.7
+    exp: "5-8"
+  - type: LIGHT_BLUE_CONCRETE
+    score: "2.0-2.6"
+    chance: 0.6
+    exp: "6-9"
+  - type: LIGHT_BLUE_GLAZED_TERRACOTTA
+    score: "2.5-3.0"
+    chance: 0.7
+    exp: "6-7"
+  - type: LIGHT_BLUE_TERRACOTTA
+    score: "3.0-3.5"
+    chance: 0.7
+    exp: "5-7"
+  - type: CYAN_CONCRETE
+    score: "2.4-2.9"
+    chance: 0.6
+    exp: "7-9"
+  - type: CYAN_GLAZED_TERRACOTTA
+    score: "2.7-3.4"
+    chance: 0.7
+    exp: "6-7"
+  - type: CYAN_TERRACOTTA
+    score: "3.3-4.0"
+    chance: 0.7
+    exp: "6-8"
+  - type: YELLOW_CONCRETE
+    score: "3.4-3.7"
+    chance: 0.6
+    exp: "7-9"
+  - type: YELLOW_GLAZED_TERRACOTTA
+    score: "3.5-4.0"
+    chance: 0.7
+    exp: "6-8"
+  - type: YELLOW_TERRACOTTA
+    score: "4.2-5.0"
+    chance: 0.7
+    exp: "6-9"
+
+level-request:
+  - '5.0'   # 1
+  - '10.0'  # 2
+  - '15.0'  # 3
+  - '20.0'  # 4
+  - '40.0'  # 5
+  - '70.0'  # 6
+  - '90.0' # 7
+  - '130.0' # 8
+  - '180.0' # 9
+  - '250.0' # 10
+  - '400.0' # 11
+  - '500.0' # 12
+  - '700.0' # 13
+  - '900.0' # 14
+  - '1200.0' # 15
+  - '1450.0' # 16
+  - '1850.0' # 17
+  - '2550.0' # 18
+  - '3100.0' # 19
+  - '3800.0' # 20
+  - '4600.0' # 21
+  - '5500.0' # 22
+  - '6700.0' # 23
+  - '8000.0' # 24
+  - '9500.0' # 25
+  - '11200.0' # 26
+  - '13200.0' # 27
+  - '15500.0' # 28
+  - '18000.0' # 29
+  - '21000.0' # 30
+  - '24500.0' # 31
+  - '28500.0' # 32
+  - '33000.0' # 33
+  - '38000.0' # 34
+  - '44000.0' # 35
+  - '51000.0' # 36
+  - '59000.0' # 37
+  - '68000.0' # 38
+  - '78000.0' # 39
+  - '90000.0' # 40
+  - '103000.0' # 41
+  - '118000.0' # 42
+  - '135000.0' # 43
+  - '154000.0' # 44
+  - '175000.0' # 45
+  - '198000.0' # 46
+  - '223000.0' # 47
+  - '250000.0' # 48
+  - '279000.0' # 49
+  - '310000.0' # 50
+  - '345000.0'   # 51
+  - '385000.0'   # 52
+  - '430000.0'   # 53
+  - '480000.0'   # 54
+  - '535000.0'   # 55
+  - '595000.0'   # 56
+  - '660000.0'   # 57
+  - '730000.0'   # 58
+  - '805000.0'   # 59
+  - '885000.0'   # 60
+  - '970000.0'   # 61
+  - '1060000.0'  # 62
+  - '1160000.0'  # 63
+  - '1270000.0'  # 64
+  - '1390000.0'  # 65
+  - '1520000.0'  # 66
+  - '1660000.0'  # 67
+  - '1810000.0'  # 68
+  - '1970000.0'  # 69
+  - '2140000.0'  # 70
+  - '2320000.0'  # 71
+  - '2510000.0'  # 72
+  - '2710000.0'  # 73
+  - '2920000.0'  # 74
+  - '3140000.0'  # 75
+  - '3370000.0'  # 76
+  - '3610000.0'  # 77
+  - '3860000.0'  # 78
+  - '4120000.0'  # 79
+  - '4390000.0'  # 80
+  - '4670000.0'  # 81
+  - '4960000.0'  # 82
+  - '5260000.0'  # 83
+  - '5570000.0'  # 84
+  - '5890000.0'  # 85
+  - '6220000.0'  # 86
+  - '6560000.0'  # 87
+  - '6910000.0'  # 88
+  - '7270000.0'  # 89
+  - '7640000.0'  # 90
+  - '8020000.0'  # 91
+  - '8410000.0'  # 92
+  - '8810000.0'  # 93
+  - '9220000.0'  # 94
+  - '9640000.0'  # 95
+  - '10070000.0' # 96
+  - '10510000.0' # 97
+  - '10960000.0' # 98
+  - '11420000.0' # 99
+  - '11890000.0' # 100
+  - '12370000.0' # 101
+  - '12860000.0' # 102
+  - '13360000.0' # 103
+  - '13870000.0' # 104
+  - '14390000.0' # 105
+  - '14920000.0' # 106
+  - '15460000.0' # 107
+  - '16010000.0' # 108
+  - '16570000.0' # 109
+  - '17140000.0' # 110
+  - '17720000.0' # 111
+  - '18310000.0' # 112
+  - '18910000.0' # 113
+  - '19520000.0' # 114
+  - '20140000.0' # 115
+  - '20770000.0' # 116
+  - '21410000.0' # 117
+  - '22060000.0' # 118
+  - '22720000.0' # 119
+  - '23390000.0' # 120
+  - '24070000.0' # 121
+  - '24760000.0' # 122
+  - '25460000.0' # 123
+  - '26170000.0' # 124
+  - '26890000.0' # 125
+  - '27620000.0' # 126
+  - '28360000.0' # 127
+  - '29110000.0' # 128
+  - '29870000.0' # 129
+  - '30640000.0' # 130
+  - '31420000.0' # 131
+  - '32210000.0' # 132
+  - '33010000.0' # 133
+  - '33820000.0' # 134
+  - '34640000.0' # 135
+  - '35470000.0' # 136
+  - '36310000.0' # 137
+  - '37160000.0' # 138
+  - '38020000.0' # 139
+  - '38890000.0' # 140
+  - '39770000.0' # 141
+  - '40660000.0' # 142
+  - '41560000.0' # 143
+  - '42470000.0' # 144
+  - '43390000.0' # 145
+  - '44320000.0' # 146
+  - '45260000.0' # 147
+  - '46210000.0' # 148
+  - '47170000.0' # 149
+  - '48140000.0' # 150
+
+level-up-title:
+  enabled: true
+  title: "&a&lTHĂNG CẤP!"
+  subtitle: "&fCấp tiếp theo:&a %next_level%"
+
+reward-on-level-up:
+  enabled: true
+  level:
+    1:
+      - 'eco give {player} 1'
+      - 'give diamond {player} 1'
+
+point-loss-on-death:
+  enabled: true
+  loss-per-death: 1  # Mỗi lần bị giết sẽ mất 1 điểm
+
+level-info-message:
+  enabled: true
+  message:
+    - "Thông tin cấp độ:"
+    - "Cấp độ hiện tại: {current_level}"
+    - "Điểm hiện tại: {current_points}"
+    - "Điểm cần thiết để lên cấp tiếp theo: {points_needed}"
+    - "Điểm cần để lên cấp {next_level}: {points_for_next_level}"
+    - "Bạn đã đạt cấp cao nhất: {max_level_reached}"
+
+notification:
+  enabled: true
+  mode: "actionbar"  # Đã được đặt thành actionbar
+  actionbar: "§a+%score% điểm §7(%block%)"
+  actionbar_pvp: "§a+%score% điểm §7(%block%) §6(-%pvp_mul%x BẢO VỆ PVP)"
+  bossbar: "Điểm nhận được: %score% từ %block%"
+
+progress-bar:
+  enabled: true
+  length: 10
+  filled: "◼"
+  empty: "◼"
+  filled-color: "&a"
+  empty-color: "&7"
+
+# ============================
+# Fortune - v1.0
+# ============================
+
+fortune:
+  permission_prefix: enchantmaterial.fortune.
+  default_multiplier: 1.0
+  values:
+    default: 1.0
+    vip: 1.2
+    mvp: 1.5
+    king: 2.0
+
+# ============================
+# EnchantMaterial - v1.0
+# ============================
+
+messages:
+  add_lore_format: "§fBổ trợ: %display_type%"
+  no_permission: "§cBạn không có quyền sử dụng lệnh này."
+  reloaded: "§aCấu hình đã được làm mới."
+  enchant_added: "§aĐã thêm enchant §f%enchant% §alevel %level%."
+  not_allowed: "§cBạn không thể đập block này mà không có enchant phù hợp."
+  level_capped: "§cCấp độ đã được giới hạn ở %max_level%."
+
+settings:
+  #cho phép tay không đập được mọi block (default minecraft ấy)
+  empty_hand_break: false
+  mmoitems_addons: true
+
+disable-world:
+  - SuperiorWorld
+
+material-whitelist:
+  - OAK_LOG
+  - OAK_WOOD
+  - STONE
+  - COBBLESTONE
+  - ANDESITE
+  - COAL_ORE
+  - DEEPSLATE_COAL_ORE
+  - COAL_BLOCK
+  - IRON_ORE
+  - DEEPSLATE_IRON_ORE
+  - IRON_BLOCK
+  - GOLD_ORE
+  - DEEPSLATE_GOLD_ORE
+  - GOLD_BLOCK
+  - LAPIS_ORE
+  - DEEPSLATE_LAPIS_ORE
+  - LAPIS_BLOCK
+  - REDSTONE_ORE
+  - DEEPSLATE_REDSTONE_ORE
+  - REDSTONE_BLOCK
+  - DIAMOND_ORE
+  - DEEPSLATE_DIAMOND_ORE
+  - DIAMOND_BLOCK
+  - EMERALD_ORE
+  - DEEPSLATE_EMERALD_ORE
+  - EMERALD_BLOCK
+  - LIGHT_BLUE_CONCRETE
+  - LIGHT_BLUE_GLAZED_TERRACOTTA
+  - LIGHT_BLUE_TERRACOTTA
+  - CYAN_CONCRETE
+  - CYAN_GLAZED_TERRACOTTA
+  - CYAN_TERRACOTTA
+  - YELLOW_CONCRETE
+  - YELLOW_GLAZED_TERRACOTTA
+  - YELLOW_TERRACOTTA
+
+enchantments:
+  oak:
+    display_type: "§aGỗ sồi"
+    max_level: 5
+    material:
+      - OAK_WOOD
+      - OAK_LOG
+      - OAK_PLANKS
+  stone:
+    display_type: "§7Đá"
+    max_level: 10
+    material:
+      - STONE
+      - COBBLESTONE
+      - ANDESITE
+  coal:
+    display_type: "§8Than"
+    max_level: 10
+    material:
+      - STONE
+      - COBBLESTONE
+      - ANDESITE
+      - COAL_ORE
+      - DEEPSLATE_COAL_ORE
+      - COAL_BLOCK
+  iron:
+    display_type: "§fSắt"
+    max_level: 10
+    material:
+      - STONE
+      - COBBLESTONE
+      - ANDESITE
+      - COAL_ORE
+      - DEEPSLATE_COAL_ORE
+      - COAL_BLOCK
+      - IRON_ORE
+      - DEEPSLATE_IRON_ORE
+      - IRON_BLOCK
+  gold:
+    display_type: "§eVàng"
+    max_level: 10
+    material:
+      - STONE
+      - COBBLESTONE
+      - ANDESITE
+      - COAL_ORE
+      - DEEPSLATE_COAL_ORE
+      - COAL_BLOCK
+      - IRON_ORE
+      - DEEPSLATE_IRON_ORE
+      - IRON_BLOCK
+      - GOLD_ORE
+      - DEEPSLATE_GOLD_ORE
+      - GOLD_BLOCK
+  diamond:
+    display_type: "§bKim cương"
+    max_level: 10
+    material:
+      - STONE
+      - COBBLESTONE
+      - ANDESITE
+      - COAL_ORE
+      - DEEPSLATE_COAL_ORE
+      - COAL_BLOCK
+      - IRON_ORE
+      - DEEPSLATE_IRON_ORE
+      - IRON_BLOCK
+      - GOLD_ORE
+      - DEEPSLATE_GOLD_ORE
+      - GOLD_BLOCK
+      - DIAMOND_ORE
+      - DEEPSLATE_DIAMOND_ORE
+      - DIAMOND_BLOCK
+  emerald:
+    display_type: "§aLục bảo"
+    max_level: 10
+    material:
+      - STONE
+      - COBBLESTONE
+      - ANDESITE
+      - COAL_ORE
+      - DEEPSLATE_COAL_ORE
+      - COAL_BLOCK
+      - IRON_ORE
+      - DEEPSLATE_IRON_ORE
+      - IRON_BLOCK
+      - GOLD_ORE
+      - DEEPSLATE_GOLD_ORE
+      - GOLD_BLOCK
+      - DIAMOND_ORE
+      - DEEPSLATE_DIAMOND_ORE
+      - DIAMOND_BLOCK
+      - EMERALD_ORE
+      - DEEPSLATE_EMERALD_ORE
+      - EMERALD_BLOCK
+  redstone:
+    display_type: "§cĐá đỏ"
+    max_level: 10
+    material:
+      - STONE
+      - COBBLESTONE
+      - ANDESITE
+      - COAL_ORE
+      - DEEPSLATE_COAL_ORE
+      - COAL_BLOCK
+      - IRON_ORE
+      - DEEPSLATE_IRON_ORE
+      - IRON_BLOCK
+      - REDSTONE_ORE
+      - DEEPSLATE_REDSTONE_ORE
+      - REDSTONE_BLOCK
+  lapis:
+    display_type: "§9Lưu ly"
+    max_level: 10
+    material:
+      - STONE
+      - COBBLESTONE
+      - ANDESITE
+      - COAL_ORE
+      - DEEPSLATE_COAL_ORE
+      - COAL_BLOCK
+      - IRON_ORE
+      - DEEPSLATE_IRON_ORE
+      - IRON_BLOCK
+      - LAPIS_ORE
+      - DEEPSLATE_LAPIS_ORE
+      - LAPIS_BLOCK
+
+  netherite:
+    display_type: "§5Netherite"
+    max_level: 10
+    material:
+      - STONE
+      - COBBLESTONE
+      - ANDESITE
+      - COAL_ORE
+      - DEEPSLATE_COAL_ORE
+      - COAL_BLOCK
+      - IRON_ORE
+      - DEEPSLATE_IRON_ORE
+      - IRON_BLOCK
+      - GOLD_ORE
+      - DEEPSLATE_GOLD_ORE
+      - GOLD_BLOCK
+      - DIAMOND_ORE
+      - DEEPSLATE_DIAMOND_ORE
+      - DIAMOND_BLOCK
+      - EMERALD_ORE
+      - DEEPSLATE_EMERALD_ORE
+      - EMERALD_BLOCK
+      - NETHERITE_BLOCK
+      - CHISELED_NETHER_BRICKS
+  summer:
+    display_type: "§6Summer"
+    max_level: 10
+    material:
+      - STONE
+      - COBBLESTONE
+      - ANDESITE
+      - COAL_ORE
+      - DEEPSLATE_COAL_ORE
+      - COAL_BLOCK
+      - IRON_ORE
+      - DEEPSLATE_IRON_ORE
+      - IRON_BLOCK
+      - GOLD_ORE
+      - DEEPSLATE_GOLD_ORE
+      - GOLD_BLOCK
+      - DIAMOND_ORE
+      - DEEPSLATE_DIAMOND_ORE
+      - DIAMOND_BLOCK
+      - EMERALD_ORE
+      - DEEPSLATE_EMERALD_ORE
+      - EMERALD_BLOCK
+      - NETHERITE_BLOCK
+      - CHISELED_NETHER_BRICKS
+      - YELLOW_CONCRETE
+      - YELLOW_GLAZED_TERRACOTTA
+      - YELLOW_TERRACOTTA
+
+  fall:
+    display_type: "§3Fall"
+    max_level: 10
+    material:
+      - STONE
+      - COBBLESTONE
+      - ANDESITE
+      - COAL_ORE
+      - DEEPSLATE_COAL_ORE
+      - COAL_BLOCK
+      - IRON_ORE
+      - DEEPSLATE_IRON_ORE
+      - IRON_BLOCK
+      - GOLD_ORE
+      - DEEPSLATE_GOLD_ORE
+      - GOLD_BLOCK
+      - DIAMOND_ORE
+      - DEEPSLATE_DIAMOND_ORE
+      - DIAMOND_BLOCK
+      - EMERALD_ORE
+      - DEEPSLATE_EMERALD_ORE
+      - EMERALD_BLOCK
+      - NETHERITE_BLOCK
+      - CHISELED_NETHER_BRICKS
+      - CYAN_CONCRETE
+      - CYAN_GLAZED_TERRACOTTA
+      - CYAN_TERRACOTTA
+  winter:
+    display_type: "§bWinter"
+    max_level: 10
+    material:
+      - STONE
+      - COBBLESTONE
+      - ANDESITE
+      - COAL_ORE
+      - DEEPSLATE_COAL_ORE
+      - COAL_BLOCK
+      - IRON_ORE
+      - DEEPSLATE_IRON_ORE
+      - IRON_BLOCK
+      - GOLD_ORE
+      - DEEPSLATE_GOLD_ORE
+      - GOLD_BLOCK
+      - DIAMOND_ORE
+      - DEEPSLATE_DIAMOND_ORE
+      - DIAMOND_BLOCK
+      - EMERALD_ORE
+      - DEEPSLATE_EMERALD_ORE
+      - EMERALD_BLOCK
+      - NETHERITE_BLOCK
+      - CHISELED_NETHER_BRICKS
+      - LIGHT_BLUE_CONCRETE
+      - LIGHT_BLUE_GLAZED_TERRACOTTA
+      - LIGHT_BLUE_TERRACOTTA
+
+
+  all_ore:
+    display_type: "§3§lMọi quặng"
+    max_level: 5
+    material:
+      - STONE
+      - COBBLESTONE
+      - ANDESITE
+      - COAL_ORE
+      - DEEPSLATE_COAL_ORE
+      - COAL_BLOCK
+      - IRON_ORE
+      - DEEPSLATE_IRON_ORE
+      - IRON_BLOCK
+      - GOLD_ORE
+      - DEEPSLATE_GOLD_ORE
+      - GOLD_BLOCK
+      - DIAMOND_ORE
+      - DEEPSLATE_DIAMOND_ORE
+      - DIAMOND_BLOCK
+      - EMERALD_ORE
+      - DEEPSLATE_EMERALD_ORE
+      - EMERALD_BLOCK
+      - REDSTONE_ORE
+      - DEEPSLATE_REDSTONE_ORE
+      - REDSTONE_BLOCK
+      - LAPIS_ORE
+      - DEEPSLATE_LAPIS_ORE
+      - LAPIS_BLOCK
+      - LIGHT_BLUE_CONCRETE
+      - LIGHT_BLUE_GLAZED_TERRACOTTA
+      - LIGHT_BLUE_TERRACOTTA
+      - CYAN_CONCRETE
+      - CYAN_GLAZED_TERRACOTTA
+      - CYAN_TERRACOTTA
+      - YELLOW_CONCRETE
+      - YELLOW_GLAZED_TERRACOTTA
+      - YELLOW_TERRACOTTA
+
+# Permission Booster Settings
+permission-booster:
+  enabled: true
+  # Thông báo khi player có permission booster
+  messages:
+    info-header: "&6=== Permission Booster ==="
+    points-boost: "&a✓ &e⭐ Điểm: &fx%multiplier%"
+    exp-boost: "&a✓ &e✨ Kinh nghiệm: &fx%multiplier%"
+    drop-boost: "&a✓ &e💎 Tỷ lệ rơi: &fx%multiplier%"
+    no-boost: "&c✗ &7%type%: &fx1.0"
+  
+  max-check-levels:
+    points: 20
+    exp: 15
+    drop: 10
+  
+  # Prefix permission (có thể tùy chỉnh)
+  permission-prefix: "enchantmaterial.booster"
+
+# Giới hạn multiplier cho từng loại
+limits:
+  points: 10
+  exp: 10
+  drop: 5
+
+# Thêm cấu hình max multiplier cho booster
+booster:
+  max-multipliers:
+    points: 100.0
+    exp: 100.0
+    drop: 50.0
+  # Multiplier mặc định khi tạo booster
+  default-multipliers:
+    points: 2.0
+    exp: 2.0
+    drop: 1.5

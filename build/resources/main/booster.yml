@@ -1,0 +1,13 @@
+settings:
+  max-per-player: 2
+
+bossbar:
+  show-bossbar: true
+  single:
+    title: "&aBooster: &f%type% x%multiplier% &7(Còn %time%)"
+    color: GREEN
+    style: SEGMENTED_10
+  double:
+    title: "&bBooster 1: &f%type1% x%multiplier1% &7(%time1%) &8| &aBooster 2: &f%type2% x%multiplier2% &7(%time2%)"
+    color: BLUE
+    style: SEGMENTED_20
