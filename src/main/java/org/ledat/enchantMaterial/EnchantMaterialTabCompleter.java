@@ -23,6 +23,7 @@ public class EnchantMaterialTabCompleter implements TabCompleter {
             // Lệnh cơ bản cho tất cả người chơi
             completions.add("level");
             completions.add("rewards");
+            completions.add("rebirth");
             completions.add("chuyensinh");
             
             // Lệnh booster cho người chơi
@@ -115,6 +116,12 @@ public class EnchantMaterialTabCompleter implements TabCompleter {
             }
         }
 
+        if (args[0].equalsIgnoreCase("rebirth") || args[0].equalsIgnoreCase("chuyensinh")) {
+            if (args.length == 2 && sender.hasPermission("enchantmaterial.admin")) {
+                return filterPartial(args[1], List.of("edit"));
+            }
+        }
+
         // Handle 'permissionbooster' subcommand
         if (args[0].equalsIgnoreCase("permissionbooster")) {
             if (args.length == 2 && sender.hasPermission("enchantmaterial.permissionbooster.admin")) {
@@ -170,7 +177,7 @@ public class EnchantMaterialTabCompleter implements TabCompleter {
         if (arg == null || arg.isEmpty()) {
             return options;
         }
-        
+
         return options.stream()
                 .filter(opt -> opt.toLowerCase().startsWith(arg.toLowerCase()))
                 .sorted()
