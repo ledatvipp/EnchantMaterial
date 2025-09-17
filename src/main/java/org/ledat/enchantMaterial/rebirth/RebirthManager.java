@@ -112,7 +112,8 @@ public class RebirthManager {
                 if (!hasRequiredItem(player, itemMap)) {
                     if (!debug) {
                         String material = (String) itemMap.get("material");
-                        int amount = (Integer) itemMap.getOrDefault("amount", 0);
+                        Object amountObj = itemMap.get("amount");
+                        int amount = amountObj instanceof Number ? ((Number) amountObj).intValue() : 0;
                         player.sendMessage("§cThiếu vật phẩm: " + amount + "x " + material);
                     }
                     return false;
@@ -126,7 +127,8 @@ public class RebirthManager {
     // Phương thức kiểm tra item có custom name
     public boolean hasRequiredItem(Player player, Map<?, ?> itemMap) {
         String material = (String) itemMap.get("material");
-        int amount = (Integer) itemMap.get("amount");
+        Object amountObj = itemMap.get("amount");
+        int amount = amountObj instanceof Number ? ((Number) amountObj).intValue() : 0;
         String customName = (String) itemMap.get("custom-name"); // Tên tùy chỉnh (tùy chọn)
         List<String> customLore = (List<String>) itemMap.get("custom-lore"); // Lore tùy chỉnh (tùy chọn)
 
