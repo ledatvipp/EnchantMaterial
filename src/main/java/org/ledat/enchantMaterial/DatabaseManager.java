@@ -443,6 +443,10 @@ public class DatabaseManager {
         });
     }
 
+    public static RebirthData getRebirthDataCachedOrAsync(UUID uuid) {
+        return getRebirthDataCachedOrAsync(uuid, null);
+    }
+
     public static RebirthData getRebirthDataCachedOrAsync(UUID uuid, Consumer<RebirthData> callback) {
         RebirthData cached = rebirthDataCache.get(uuid);
         Long ts = rebirthCacheTimestamps.get(uuid);
