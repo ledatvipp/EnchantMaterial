@@ -50,34 +50,150 @@ public class LuckyChanceBlockListener implements Listener {
         ConfigurationSection rewardsSection = plugin.getLuckyBlockConfig().getConfigurationSection("rewards");
         if (rewardsSection != null) {
             for (String blockType : rewardsSection.getKeys(false)) {
-                List<String> rewardStrings = rewardsSection.getStringList(blockType);
                 List<RewardData> rewards = new ArrayList<>();
-                
-                for (String rewardString : rewardStrings) {
-                    RewardData reward = parseRewardData(rewardString);
-                    if (reward != null) {
-                        rewards.add(reward);
+
+                List<Map<?, ?>> rewardMaps = rewardsSection.getMapList(blockType);
+                if (!rewardMaps.isEmpty()) {
+                    for (int index = 0; index < rewardMaps.size(); index++) {
+                        RewardData reward = parseRewardData(blockType, index, rewardMaps.get(index));
+                        if (reward != null) {
+                            rewards.add(reward);
+                        }
+                    }
+                } else {
+                    List<String> rewardStrings = rewardsSection.getStringList(blockType);
+                    for (String rewardString : rewardStrings) {
+                        RewardData reward = parseLegacyRewardData(blockType, rewardString);
+                        if (reward != null) {
+                            rewards.add(reward);
+                        }
                     }
                 }
+
+                if (rewards.isEmpty()) {
+                    plugin.getLogger().warning("Không tìm thấy reward hợp lệ cho block " + blockType + ". Hãy kiểm tra lại cấu hình!");
+                }
+
                 rewardCache.put(blockType, rewards);
             }
+        } else {
+            plugin.getLogger().warning("Không thể tìm thấy phần rewards trong luckyblock.yml");
         }
-        
+
         lastCacheUpdate = currentTime;
     }
 
-    private RewardData parseRewardData(String rewardString) {
+    private RewardData parseRewardData(String blockType, int index, Map<?, ?> rewardMap) {
+        if (rewardMap == null || rewardMap.isEmpty()) {
+            plugin.getLogger().warning("Reward trống tại " + blockType + "[#" + index + "]");
+            return null;
+        }
+
+        Object typeObj = rewardMap.get("type");
+        if (!(typeObj instanceof String)) {
+            plugin.getLogger().warning("Thiếu hoặc sai định dạng 'type' cho reward tại " + blockType + "[#" + index + "]");
+            return null;
+        }
+
+        String type = ((String) typeObj).trim().toLowerCase(Locale.ROOT);
+        Double chance = parseDoubleField(rewardMap.get("chance"));
+        if (chance == null) {
+            plugin.getLogger().warning("Thiếu hoặc sai định dạng 'chance' cho reward tại " + blockType + "[#" + index + "]");
+            return null;
+        }
+
+        Double amount = parseDoubleField(rewardMap.get("amount"));
+        String item = rewardMap.containsKey("item") && rewardMap.get("item") != null
+            ? String.valueOf(rewardMap.get("item")).trim()
+            : null;
+        String command = rewardMap.containsKey("command") && rewardMap.get("command") != null
+            ? String.valueOf(rewardMap.get("command")).trim()
+            : null;
+
+        switch (type) {
+            case "money":
+                if (amount == null) {
+                    plugin.getLogger().warning("Reward money tại " + blockType + "[#" + index + "] thiếu 'amount'");
+                    return null;
+                }
+                break;
+            case "item":
+                if (item == null || item.isEmpty()) {
+                    plugin.getLogger().warning("Reward item tại " + blockType + "[#" + index + "] thiếu 'item'");
+                    return null;
+                }
+                if (amount == null) {
+                    amount = 1d;
+                }
+                break;
+            case "command":
+                if (command == null || command.isEmpty()) {
+                    plugin.getLogger().warning("Reward command tại " + blockType + "[#" + index + "] thiếu 'command'");
+                    return null;
+                }
+                break;
+            default:
+                plugin.getLogger().warning("Loại reward không hợp lệ '" + type + "' tại " + blockType + "[#" + index + "]");
+                return null;
+        }
+
+        return new RewardData(type, chance, amount, item, command, null);
+    }
+
+    private RewardData parseLegacyRewardData(String blockType, String rewardString) {
         String[] data = rewardString.split(",");
-        if (data.length < 3) return null;
+        if (data.length < 3) {
+            plugin.getLogger().warning("Reward legacy không hợp lệ tại " + blockType + ": " + rewardString);
+            return null;
+        }
 
         try {
-            String type = data[0].split(":")[1].trim().toLowerCase();
-            String value = data[1].split(":")[1].trim();
-            double chance = Double.parseDouble(data[2].split(":")[1].trim());
-            
-            return new RewardData(type, value, chance);
+            String type = data[0].split(":", 2)[1].trim().toLowerCase(Locale.ROOT);
+            String value = data[1].split(":", 2)[1].trim();
+            double chance = Double.parseDouble(data[2].split(":", 2)[1].trim());
+
+            Double amount = null;
+            String item = null;
+            String command = null;
+
+            switch (type) {
+                case "money":
+                    amount = Double.parseDouble(value);
+                    break;
+                case "item":
+                    String[] itemData = value.split(":", 2);
+                    item = itemData[0].trim();
+                    if (itemData.length > 1) {
+                        amount = Double.parseDouble(itemData[1].trim());
+                    } else {
+                        amount = 1d;
+                    }
+                    break;
+                case "command":
+                    command = value;
+                    break;
+                default:
+                    plugin.getLogger().warning("Loại reward legacy không hợp lệ '" + type + "' tại " + blockType + "");
+                    return null;
+            }
+
+            return new RewardData(type, chance, amount, item, command, value);
         } catch (Exception e) {
-            plugin.getLogger().warning("Lỗi khi parse reward data: " + rewardString);
+            plugin.getLogger().warning("Lỗi khi parse reward legacy tại " + blockType + ": " + rewardString);
+            return null;
+        }
+    }
+
+    private Double parseDoubleField(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).doubleValue();
+        }
+        try {
+            return Double.parseDouble(String.valueOf(value));
+        } catch (NumberFormatException e) {
             return null;
         }
     }
@@ -102,36 +218,78 @@ public class LuckyChanceBlockListener implements Listener {
             }
         } else {
             player.sendMessage("§cKhông có phần thưởng nào được cấu hình cho Lucky Block: §6" + blockTypeName);
+            plugin.getLogger().warning("Lucky Block '" + blockTypeName + "' không có reward hợp lệ. Vui lòng kiểm tra cấu hình!");
         }
     }
 
     private void executeReward(Player player, RewardData reward) {
         switch (reward.type) {
             case "money":
-                try {
-                    double amount = Double.parseDouble(reward.value);
-                    giveMoney(player, amount);
-                } catch (NumberFormatException e) {
-                    plugin.getLogger().warning("Invalid money amount: " + reward.value);
+                if (reward.amount != null) {
+                    giveMoney(player, reward.amount);
+                } else if (reward.legacyValue != null) {
+                    try {
+                        giveMoney(player, Double.parseDouble(reward.legacyValue));
+                    } catch (NumberFormatException ex) {
+                        plugin.getLogger().warning("Invalid legacy money amount: " + reward.legacyValue);
+                    }
+                } else {
+                    plugin.getLogger().warning("Reward money thiếu amount");
                 }
                 break;
             case "item":
-                // Giả sử format là "item_name:amount"
-                String[] itemData = reward.value.split(":");
-                if (itemData.length >= 2) {
-                    try {
-                        String itemName = itemData[0];
-                        int amount = Integer.parseInt(itemData[1]);
-                        giveItem(player, itemName, amount);
-                    } catch (NumberFormatException e) {
-                        plugin.getLogger().warning("Invalid item data: " + reward.value);
+                String itemName = reward.item;
+                if ((itemName == null || itemName.isEmpty()) && reward.legacyValue != null) {
+                    String[] legacyItemData = reward.legacyValue.split(":", 2);
+                    itemName = legacyItemData[0];
+                    if (legacyItemData.length > 1 && reward.amount == null) {
+                        try {
+                            giveItem(player, itemName, Integer.parseInt(legacyItemData[1]));
+                            return;
+                        } catch (NumberFormatException e) {
+                            plugin.getLogger().warning("Invalid legacy item amount: " + reward.legacyValue);
+                            return;
+                        }
                     }
                 }
+
+                if (itemName == null || itemName.isEmpty()) {
+                    plugin.getLogger().warning("Reward item thiếu tên vật phẩm");
+                    return;
+                }
+
+                int amount = 1;
+                if (reward.amount != null) {
+                    amount = (int) Math.max(1, Math.round(reward.amount));
+                } else if (reward.legacyValue != null) {
+                    String[] legacyItemData = reward.legacyValue.split(":", 2);
+                    if (legacyItemData.length > 1) {
+                        try {
+                            amount = Integer.parseInt(legacyItemData[1]);
+                        } catch (NumberFormatException e) {
+                            plugin.getLogger().warning("Invalid legacy item amount: " + reward.legacyValue);
+                        }
+                    }
+                }
+
+                giveItem(player, itemName, amount);
                 break;
             case "command":
-                String command = reward.value.replace("{player}", player.getName());
+                String command = reward.command;
+                if ((command == null || command.isEmpty()) && reward.legacyValue != null) {
+                    command = reward.legacyValue;
+                }
+
+                if (command == null || command.isEmpty()) {
+                    plugin.getLogger().warning("Reward command thiếu chuỗi lệnh");
+                    return;
+                }
+
+                command = command.replace("{player}", player.getName());
                 executeCommand(player, command);
                 break;
+            default:
+                plugin.getLogger().warning("Không thể xử lý reward type: " + reward.type);
         }
     }
 
@@ -172,13 +330,19 @@ public class LuckyChanceBlockListener implements Listener {
     // Inner class để lưu trữ reward data
     private static class RewardData {
         final String type;
-        final String value;
         final double chance;
+        final Double amount;
+        final String item;
+        final String command;
+        final String legacyValue;
 
-        RewardData(String type, String value, double chance) {
+        RewardData(String type, double chance, Double amount, String item, String command, String legacyValue) {
             this.type = type;
-            this.value = value;
             this.chance = chance;
+            this.amount = amount;
+            this.item = item;
+            this.command = command;
+            this.legacyValue = legacyValue;
         }
     }
 }
