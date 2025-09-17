@@ -460,8 +460,25 @@ public class CommandManager implements CommandExecutor {
     }
 
     private void displayLevelInfo(Player player) {
-        double currentPoints = EnchantMaterial.getInstance().getCurrentPoints(player);
-        int currentLevel = EnchantMaterial.getInstance().getCurrentLevel(player);
+        UUID uuid = player.getUniqueId();
+        boolean hasCache = DatabaseManager.getCached(uuid) != null;
+
+        if (!hasCache) {
+            player.sendMessage("§e⏳ Đang tải dữ liệu cấp độ, vui lòng chờ...");
+        }
+
+        DatabaseManager.getPlayerDataCachedOrAsync(uuid, data -> {
+            if (data == null || !player.isOnline()) {
+                return;
+            }
+
+            Bukkit.getScheduler().runTask(EnchantMaterial.getInstance(), () -> sendLevelInfoMessage(player, data));
+        });
+    }
+
+    private void sendLevelInfoMessage(Player player, PlayerData data) {
+        double currentPoints = data.getPoints();
+        int currentLevel = data.getLevel();
 
         List<Double> levelRequests = EnchantMaterial.getInstance().getConfig().getDoubleList("level-request");
 
@@ -472,7 +489,7 @@ public class CommandManager implements CommandExecutor {
 
         if (EnchantMaterial.getInstance().getConfig().getBoolean("level-info-message.enabled") && messageTemplate != null) {
             for (String line : messageTemplate) {
-                line = line
+                String formatted = line
                         .replace("{current_level}", String.valueOf(currentLevel))
                         .replace("{current_points}", String.format("%.2f", currentPoints))
                         .replace("{points_needed}", String.format("%.2f", pointsNeeded))
@@ -480,19 +497,20 @@ public class CommandManager implements CommandExecutor {
                         .replace("{next_level}", String.valueOf(currentLevel + 1))
                         .replace("{max_level_reached}", currentLevel >= levelRequests.size() ? "true" : "false");
 
-                player.sendMessage(ChatColor.translateAlternateColorCodes('&', line));
+                player.sendMessage(ChatColor.translateAlternateColorCodes('&', formatted));
             }
-        } else {
-            player.sendMessage("§6=== Thông tin cấp độ ===");
-            player.sendMessage("§a📊 Cấp độ hiện tại: §f" + currentLevel);
-            player.sendMessage("§a💎 Điểm hiện tại: §f" + String.format("%.2f", currentPoints));
+            return;
+        }
 
-            if (currentLevel < levelRequests.size()) {
-                player.sendMessage("§e⭐ Điểm cần thiết để lên cấp tiếp theo: §f" + String.format("%.2f", pointsNeeded));
-                player.sendMessage("§e🎯 Điểm cần để lên cấp " + (currentLevel + 1) + ": §f" + String.format("%.2f", pointsForNextLevel));
-            } else {
-                player.sendMessage("§c🏆 Bạn đã đạt cấp cao nhất!");
-            }
+        player.sendMessage("§6=== Thông tin cấp độ ===");
+        player.sendMessage("§a📊 Cấp độ hiện tại: §f" + currentLevel);
+        player.sendMessage("§a💎 Điểm hiện tại: §f" + String.format("%.2f", currentPoints));
+
+        if (currentLevel < levelRequests.size()) {
+            player.sendMessage("§e⭐ Điểm cần thiết để lên cấp tiếp theo: §f" + String.format("%.2f", pointsNeeded));
+            player.sendMessage("§e🎯 Điểm cần để lên cấp " + (currentLevel + 1) + ": §f" + String.format("%.2f", pointsForNextLevel));
+        } else {
+            player.sendMessage("§c🏆 Bạn đã đạt cấp cao nhất!");
         }
     }
 
@@ -523,56 +541,66 @@ public class CommandManager implements CommandExecutor {
 
         try {
             switch (type) {
-                case "level":
+                case "level": {
                     int level = Integer.parseInt(amountStr);
                     if (level < 1) {
                         sender.sendMessage("§cLevel phải lớn hơn 0!");
                         return true;
                     }
-                    
-                    // SỬA: Lấy level hiện tại và cộng thêm thay vì set
-                    try {
-                        PlayerData playerData = DatabaseManager.getPlayerDataAsync(targetPlayer.getUniqueId()).get();
-                        int currentLevel = playerData.getLevel();
-                        int newLevel = currentLevel + level;
-                        
-                        playerData.setLevel(newLevel);
-                        DatabaseManager.savePlayerDataAsync(playerData);
-                        
-                        sender.sendMessage("§aĐã cộng thêm " + level + " level cho " + targetPlayer.getName() + " (Tổng: " + newLevel + ")");
-                        targetPlayer.sendMessage("§aBạn đã được cộng thêm " + level + " level bởi " + sender.getName() + " (Tổng: " + newLevel + ")");
-                    } catch (Exception e) {
-                        sender.sendMessage("§cLỗi khi cập nhật level: " + e.getMessage());
-                        e.printStackTrace();
+
+                    UUID uuid = targetPlayer.getUniqueId();
+                    boolean cached = DatabaseManager.getCached(uuid) != null;
+                    if (!cached) {
+                        sender.sendMessage("§e⏳ Đang tải dữ liệu level của " + targetPlayer.getName() + "...");
                     }
+
+                    DatabaseManager.getPlayerDataCachedOrAsync(uuid, data -> {
+                        if (data == null) {
+                            return;
+                        }
+
+                        data.setLevel(data.getLevel() + level);
+                        DatabaseManager.savePlayerDataAsync(data);
+
+                        Bukkit.getScheduler().runTask(EnchantMaterial.getInstance(), () -> {
+                            sender.sendMessage("§aĐã cộng thêm " + level + " level cho " + targetPlayer.getName() + " (Tổng: " + data.getLevel() + ")");
+                            targetPlayer.sendMessage("§aBạn đã được cộng thêm " + level + " level bởi " + sender.getName() + " (Tổng: " + data.getLevel() + ")");
+                        });
+                    });
                     break;
+                }
                 case "points":
-                case "score":
+                case "score": {
                     double points = Double.parseDouble(amountStr);
                     if (points < 0) {
                         sender.sendMessage("§cPoints phải lớn hơn hoặc bằng 0!");
                         return true;
                     }
-                    
-                    // SỬA: Lấy points hiện tại và cộng thêm thay vì set
-                    double currentPoints = EnchantMaterial.getInstance().getCurrentPoints(targetPlayer);
-                    double newTotalPoints = currentPoints + points;
-                    
-                    EnchantMaterial.getInstance().setPlayerPoints(targetPlayer, newTotalPoints);
-                    
-                    // Kiểm tra và cập nhật level dựa trên points mới
-                    Bukkit.getScheduler().runTaskAsynchronously(EnchantMaterial.getInstance(), () -> {
-                        try {
-                            checkAndUpdateLevel(targetPlayer, newTotalPoints);
-                        } catch (Exception e) {
-                            e.printStackTrace();
+
+                    UUID targetUuid = targetPlayer.getUniqueId();
+                    boolean hasCache = DatabaseManager.getCached(targetUuid) != null;
+                    if (!hasCache) {
+                        sender.sendMessage("§e⏳ Đang tải dữ liệu điểm của " + targetPlayer.getName() + "...");
+                    }
+
+                    DatabaseManager.getPlayerDataCachedOrAsync(targetUuid, data -> {
+                        if (data == null) {
+                            return;
                         }
+
+                        double newTotalPoints = data.getPoints() + points;
+                        data.setPoints(newTotalPoints);
+
+                        handleLevelUpdate(targetPlayer, data);
+                        DatabaseManager.savePlayerDataAsync(data);
+
+                        Bukkit.getScheduler().runTask(EnchantMaterial.getInstance(), () -> {
+                            sender.sendMessage("§aĐã cộng thêm " + points + " points cho " + targetPlayer.getName() + " (Tổng: " + String.format("%.2f", newTotalPoints) + ")");
+                            targetPlayer.sendMessage("§aBạn đã được cộng thêm " + points + " points bởi " + sender.getName() + " (Tổng: " + String.format("%.2f", newTotalPoints) + ")");
+                        });
                     });
-                    
-                    sender.sendMessage("§aĐã cộng thêm " + points + " points cho " + targetPlayer.getName() + " (Tổng: " + newTotalPoints + ")");
-                    targetPlayer.sendMessage("§aBạn đã được cộng thêm " + points + " points bởi " + sender.getName() + " (Tổng: " + newTotalPoints + ")");
                     break;
-                    
+                }
                 default:
                     sender.sendMessage("§cLoại không hợp lệ! Sử dụng: level, points, hoặc score");
                     return true;
@@ -589,49 +617,39 @@ public class CommandManager implements CommandExecutor {
         return true;
     }
 
-    // THÊM PHƯƠNG THỨC MỚI:
-    private void checkAndUpdateLevel(Player player, double newPoints) {
-        try {
-            List<Double> levelRequests = EnchantMaterial.getInstance().getConfig().getDoubleList("level-request");
-            PlayerData playerData = DatabaseManager.getPlayerData(player.getUniqueId().toString());
-            int currentLevel = playerData.getLevel();
-        
-            // Tính level mới dựa trên points
-            int newLevel = 0;
-            for (int i = 0; i < levelRequests.size(); i++) {
-                if (newPoints >= levelRequests.get(i)) {
-                    newLevel = i + 1;
-                } else {
-                    break;
-                }
-            }
-        
-            // Nếu level mới cao hơn level hiện tại, cập nhật
-            if (newLevel > currentLevel) {
-                playerData.setLevel(newLevel);
-                DatabaseManager.savePlayerData(playerData);
-            
-                // Tạo biến final để sử dụng trong lambda
-                final int finalNewLevel = newLevel;
-                
-                // Gửi thông báo level up
-                Bukkit.getScheduler().runTask(EnchantMaterial.getInstance(), () -> {
-                    String title = ChatColor.translateAlternateColorCodes('&', 
-                        EnchantMaterial.getInstance().getConfig().getString("level-up-title.title")
-                            .replace("%next_level%", String.valueOf(finalNewLevel)));
-                    String subtitle = ChatColor.translateAlternateColorCodes('&', 
-                        EnchantMaterial.getInstance().getConfig().getString("level-up-title.subtitle")
-                            .replace("%next_level%", String.valueOf(finalNewLevel)));
-                
-                    player.sendTitle(title, subtitle, 10, 70, 20);
-                    player.sendMessage("§a✨ Chúc mừng! Bạn đã lên cấp " + finalNewLevel + "!");
-                });
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-    }
+    private void handleLevelUpdate(Player player, PlayerData data) {
+        List<Double> levelRequests = EnchantMaterial.getInstance().getConfig().getDoubleList("level-request");
+        int currentLevel = data.getLevel();
+        int calculatedLevel = currentLevel;
 
+        for (int i = 0; i < levelRequests.size(); i++) {
+            if (data.getPoints() >= levelRequests.get(i)) {
+                calculatedLevel = i + 1;
+            } else {
+                break;
+            }
+        }
+
+        if (calculatedLevel <= currentLevel) {
+            return;
+        }
+
+        data.setLevel(calculatedLevel);
+        final int finalNewLevel = calculatedLevel;
+
+        Bukkit.getScheduler().runTask(EnchantMaterial.getInstance(), () -> {
+            String title = ChatColor.translateAlternateColorCodes('&',
+                    EnchantMaterial.getInstance().getConfig().getString("level-up-title.title")
+                            .replace("%next_level%", String.valueOf(finalNewLevel)));
+            String subtitle = ChatColor.translateAlternateColorCodes('&',
+                    EnchantMaterial.getInstance().getConfig().getString("level-up-title.subtitle")
+                            .replace("%next_level%", String.valueOf(finalNewLevel)));
+
+            player.sendTitle(title, subtitle, 10, 70, 20);
+            player.sendMessage("§a✨ Chúc mừng! Bạn đã lên cấp " + finalNewLevel + "!");
+        });
+    }
+        
     private boolean handleRebirthCommand(CommandSender sender, String[] args) {
         if (!(sender instanceof Player)) {
             sender.sendMessage("§c✗ Chỉ người chơi mới có thể sử dụng lệnh này!");

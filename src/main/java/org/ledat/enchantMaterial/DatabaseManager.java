@@ -2,6 +2,7 @@ package org.ledat.enchantMaterial;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import org.bukkit.Bukkit;
 import org.ledat.enchantMaterial.rebirth.RebirthData;
 
 import java.io.File;
@@ -16,6 +17,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 public class DatabaseManager {
 
@@ -29,6 +31,8 @@ public class DatabaseManager {
     private static final Map<String, Set<Integer>> claimedRewardsCache = new ConcurrentHashMap<>();
     private static final long CACHE_DURATION = 300000; // 5 phút
     private static final Map<UUID, Long> cacheTimestamps = new ConcurrentHashMap<>();
+    private static final Map<UUID, RebirthData> rebirthDataCache = new ConcurrentHashMap<>();
+    private static final Map<UUID, Long> rebirthCacheTimestamps = new ConcurrentHashMap<>();
 
     // ===== PHẦN 3: BATCH PROCESSING =====
     // Gom nhiều operations thành 1 lần để giảm database load
@@ -163,6 +167,8 @@ public class DatabaseManager {
                     playerDataCache.remove(uuid);
                     claimedRewardsCache.remove(uuid.toString());
                     cacheTimestamps.remove(uuid);
+                    rebirthDataCache.remove(uuid);
+                    rebirthCacheTimestamps.remove(uuid);
                 }
             }
         }, 60, 60, TimeUnit.SECONDS);
@@ -344,6 +350,54 @@ public class DatabaseManager {
         return playerDataCache.get(uuid);
     }
 
+    public static PlayerData getPlayerDataCachedOrAsync(UUID uuid, Consumer<PlayerData> callback) {
+        PlayerData cached = getCached(uuid);
+        if (cached != null) {
+            if (callback != null) {
+                try {
+                    callback.accept(cached);
+                } catch (Exception e) {
+                    EnchantMaterial.getInstance().getLogger().warning(
+                            "Lỗi callback khi trả dữ liệu cache cho " + uuid + ": " + e.getMessage());
+                }
+            }
+            return cached;
+        }
+
+        PlayerData defaultData = new PlayerData(uuid, 1, 0.0);
+        EnchantMaterial.getInstance().getLogger().finer(
+                "PlayerData cache miss cho " + uuid + ", trả về mặc định và tải async");
+
+        getPlayerDataAsync(uuid).thenAccept(data -> {
+            if (callback != null) {
+                Bukkit.getScheduler().runTask(EnchantMaterial.getInstance(), () -> {
+                    try {
+                        callback.accept(data);
+                    } catch (Exception e) {
+                        EnchantMaterial.getInstance().getLogger().warning(
+                                "Lỗi callback khi trả dữ liệu async cho " + uuid + ": " + e.getMessage());
+                    }
+                });
+            }
+        }).exceptionally(ex -> {
+            EnchantMaterial.getInstance().getLogger().warning(
+                    "Lỗi tải async player data cho " + uuid + ": " + ex.getMessage());
+            if (callback != null) {
+                Bukkit.getScheduler().runTask(EnchantMaterial.getInstance(), () -> {
+                    try {
+                        callback.accept(defaultData);
+                    } catch (Exception e) {
+                        EnchantMaterial.getInstance().getLogger().warning(
+                                "Lỗi callback fallback cho " + uuid + ": " + e.getMessage());
+                    }
+                });
+            }
+            return null;
+        });
+
+        return defaultData;
+    }
+
     /**
      * (MỚI) Cộng dồn điểm cho người chơi theo kiểu non-blocking.
      * - Không gọi DB trên main thread.
@@ -365,6 +419,79 @@ public class DatabaseManager {
             playerDataCache.put(uuid, cur);
             cacheTimestamps.put(uuid, now);
         }
+    }
+
+    public static RebirthData getCachedRebirthData(UUID uuid) {
+        return rebirthDataCache.get(uuid);
+    }
+
+    public static CompletableFuture<RebirthData> getRebirthDataAsync(UUID uuid) {
+        RebirthData cached = rebirthDataCache.get(uuid);
+        Long ts = rebirthCacheTimestamps.get(uuid);
+        if (cached != null && ts != null && System.currentTimeMillis() - ts < CACHE_DURATION) {
+            return CompletableFuture.completedFuture(cached);
+        }
+
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                return getRebirthData(uuid);
+            } catch (SQLException e) {
+                EnchantMaterial.getInstance().getLogger().warning(
+                        "Lỗi load rebirth data: " + e.getMessage());
+                return new RebirthData(uuid, 0, 0);
+            }
+        });
+    }
+
+    public static RebirthData getRebirthDataCachedOrAsync(UUID uuid, Consumer<RebirthData> callback) {
+        RebirthData cached = rebirthDataCache.get(uuid);
+        Long ts = rebirthCacheTimestamps.get(uuid);
+        if (cached != null && ts != null && System.currentTimeMillis() - ts < CACHE_DURATION) {
+            if (callback != null) {
+                try {
+                    callback.accept(cached);
+                } catch (Exception e) {
+                    EnchantMaterial.getInstance().getLogger().warning(
+                            "Lỗi callback khi trả rebirth cache cho " + uuid + ": " + e.getMessage());
+                }
+            }
+            return cached;
+        }
+
+        RebirthData defaultData = new RebirthData(uuid, 0, 0);
+        EnchantMaterial.getInstance().getLogger().finer(
+                "Rebirth cache miss cho " + uuid + ", trả về mặc định và tải async");
+
+        getRebirthDataAsync(uuid).thenAccept(data -> {
+            rebirthDataCache.put(uuid, data);
+            rebirthCacheTimestamps.put(uuid, System.currentTimeMillis());
+            if (callback != null) {
+                Bukkit.getScheduler().runTask(EnchantMaterial.getInstance(), () -> {
+                    try {
+                        callback.accept(data);
+                    } catch (Exception e) {
+                        EnchantMaterial.getInstance().getLogger().warning(
+                                "Lỗi callback khi trả rebirth async cho " + uuid + ": " + e.getMessage());
+                    }
+                });
+            }
+        }).exceptionally(ex -> {
+            EnchantMaterial.getInstance().getLogger().warning(
+                    "Lỗi tải async rebirth data cho " + uuid + ": " + ex.getMessage());
+            if (callback != null) {
+                Bukkit.getScheduler().runTask(EnchantMaterial.getInstance(), () -> {
+                    try {
+                        callback.accept(defaultData);
+                    } catch (Exception e) {
+                        EnchantMaterial.getInstance().getLogger().warning(
+                                "Lỗi callback fallback rebirth cho " + uuid + ": " + e.getMessage());
+                    }
+                });
+            }
+            return null;
+        });
+
+        return defaultData;
     }
 
     /**
@@ -467,19 +594,30 @@ public class DatabaseManager {
 
     // Thêm methods cho rebirth
     public static RebirthData getRebirthData(UUID uuid) throws SQLException {
+        RebirthData cached = rebirthDataCache.get(uuid);
+        Long ts = rebirthCacheTimestamps.get(uuid);
+        if (cached != null && ts != null && System.currentTimeMillis() - ts < CACHE_DURATION) {
+            return cached;
+        }
+
         try (Connection connection = dataSource.getConnection()) {
             String query = "SELECT * FROM rebirth_data WHERE uuid = ?";
             try (PreparedStatement statement = connection.prepareStatement(query)) {
                 statement.setString(1, uuid.toString());
                 ResultSet resultSet = statement.executeQuery();
 
+                RebirthData data;
                 if (resultSet.next()) {
                     int rebirthLevel = resultSet.getInt("rebirth_level");
                     long lastRebirthTime = resultSet.getLong("last_rebirth_time");
-                    return new RebirthData(uuid, rebirthLevel, lastRebirthTime);
+                    data = new RebirthData(uuid, rebirthLevel, lastRebirthTime);
                 } else {
-                    return new RebirthData(uuid, 0, 0);
+                    data = new RebirthData(uuid, 0, 0);
                 }
+
+                rebirthDataCache.put(uuid, data);
+                rebirthCacheTimestamps.put(uuid, System.currentTimeMillis());
+                return data;
             }
         }
     }
@@ -494,6 +632,9 @@ public class DatabaseManager {
                 statement.setInt(2, rebirthData.getRebirthLevel());
                 statement.setLong(3, rebirthData.getLastRebirthTime());
                 statement.executeUpdate();
+
+                rebirthDataCache.put(rebirthData.getUuid(), rebirthData);
+                rebirthCacheTimestamps.put(rebirthData.getUuid(), System.currentTimeMillis());
             }
         }
     }
@@ -601,6 +742,9 @@ public class DatabaseManager {
 
             // Clear claimed rewards cache
             claimedRewardsCache.clear();
+
+            rebirthDataCache.clear();
+            rebirthCacheTimestamps.clear();
 
             // Force save any pending data before clearing
             forceSaveAllPendingData();
