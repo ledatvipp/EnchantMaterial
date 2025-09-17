@@ -51,8 +51,8 @@ public class RebirthGUI implements Listener {
             // ✅ Load dữ liệu async và update GUI sau
             CompletableFuture.supplyAsync(() -> {
                 try {
-                    RebirthData rebirthData = DatabaseManager.getRebirthData(player.getUniqueId());
-                    PlayerData playerData = DatabaseManager.getPlayerDataAsync(player.getUniqueId()).get();
+                    RebirthData rebirthData = DatabaseManager.getRebirthDataCachedOrAsync(player.getUniqueId());
+                    PlayerData playerData = DatabaseManager.getPlayerDataCachedOrAsync(player.getUniqueId(), null);
                     return new Object[]{rebirthData, playerData};
                 } catch (Exception e) {
                     plugin.getLogger().severe("Lỗi load dữ liệu rebirth cho " + player.getName() + ": " + e.getMessage());
@@ -123,8 +123,8 @@ public class RebirthGUI implements Listener {
     // Phương thức fillGUIFromConfig với 2 tham số (giữ nguyên để tương thích)
     private void fillGUIFromConfig(Inventory gui, Player player) {
         try {
-            RebirthData rebirthData = DatabaseManager.getRebirthData(player.getUniqueId());
-            PlayerData playerData = DatabaseManager.getPlayerDataAsync(player.getUniqueId()).get();
+            RebirthData rebirthData = DatabaseManager.getRebirthDataCachedOrAsync(player.getUniqueId());
+            PlayerData playerData = DatabaseManager.getPlayerDataCachedOrAsync(player.getUniqueId(), null);
             
             // Gọi phương thức với 4 tham số
             fillGUIFromConfig(gui, player, rebirthData, playerData);
@@ -567,7 +567,7 @@ public class RebirthGUI implements Listener {
     private String replacePlaceholders(String text, Player player, Integer level) {
         try {
             PlayerData playerData = DatabaseManager.getPlayerData(player.getUniqueId().toString());
-            RebirthData rebirthData = DatabaseManager.getRebirthData(player.getUniqueId());
+            RebirthData rebirthData = DatabaseManager.getRebirthDataCachedOrAsync(player.getUniqueId());
             
             text = text.replace("%player%", player.getName())
                       .replace("%current_level%", String.valueOf(playerData.getLevel()))
@@ -634,7 +634,7 @@ public class RebirthGUI implements Listener {
                 int level = rebirthManager.getConfig().getInt(path + ".level", 1);
                 
                 try {
-                    RebirthData rebirthData = DatabaseManager.getRebirthData(player.getUniqueId());
+                    RebirthData rebirthData = DatabaseManager.getRebirthDataCachedOrAsync(player.getUniqueId());
                     
                     // Check if this is the next available rebirth level
                     if (level == rebirthData.getRebirthLevel() + 1) {
@@ -761,7 +761,7 @@ public class RebirthGUI implements Listener {
             // SỬA: Đường dẫn config đúng
             String path = "rebirth.rebirth.levels." + level;
             PlayerData playerData = DatabaseManager.getPlayerData(player.getUniqueId().toString());
-            RebirthData rebirthData = DatabaseManager.getRebirthData(player.getUniqueId());
+            RebirthData rebirthData = DatabaseManager.getRebirthDataCachedOrAsync(player.getUniqueId());
         
             // Kiểm tra level chuyển sinh
             if (rebirthData.getRebirthLevel() + 1 != level) {

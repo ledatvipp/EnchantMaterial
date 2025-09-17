@@ -347,21 +347,23 @@ public class EnchantMaterial extends JavaPlugin {
 
     // Thêm phương thức để lấy dữ liệu từ cache/pending
     public double getCurrentPoints(Player player) {
-        try {
-            return DatabaseManager.getPlayerDataAsync(player.getUniqueId()).get().getPoints();
-        } catch (Exception e) {
-            getLogger().warning("❌ Lỗi lấy points: " + e.getMessage());
-            return 0.0;
+        UUID uuid = player.getUniqueId();
+        boolean hasCache = DatabaseManager.getCached(uuid) != null;
+        PlayerData data = DatabaseManager.getPlayerDataCachedOrAsync(uuid, null);
+        if (!hasCache) {
+            getLogger().finer("Points cache miss cho " + player.getName() + ", dùng mặc định tạm thời");
         }
+        return data.getPoints();
     }
 
     public int getCurrentLevel(Player player) {
-        try {
-            return DatabaseManager.getPlayerDataAsync(player.getUniqueId()).get().getLevel();
-        } catch (Exception e) {
-            getLogger().warning("❌ Lỗi lấy level: " + e.getMessage());
-            return 1;
+        UUID uuid = player.getUniqueId();
+        boolean hasCache = DatabaseManager.getCached(uuid) != null;
+        PlayerData data = DatabaseManager.getPlayerDataCachedOrAsync(uuid, null);
+        if (!hasCache) {
+            getLogger().finer("Level cache miss cho " + player.getName() + ", dùng mặc định tạm thời");
         }
+        return data.getLevel();
     }
 
     private void hookBaoVePvP() {

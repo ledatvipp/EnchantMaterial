@@ -147,7 +147,7 @@ public class EnchantMaterialPlaceholder extends PlaceholderExpansion {
             // Rebirth placeholders
             case "rebirth_level": {
                 try {
-                    RebirthData rebirthData = DatabaseManager.getRebirthData(uuid);
+                    RebirthData rebirthData = DatabaseManager.getRebirthDataCachedOrAsync(uuid, null);
                     return String.valueOf(rebirthData.getRebirthLevel());
                 } catch (Exception e) {
                     return "0";
@@ -156,7 +156,7 @@ public class EnchantMaterialPlaceholder extends PlaceholderExpansion {
             
             case "rebirth_next_level": {
                 try {
-                    RebirthData rebirthData = DatabaseManager.getRebirthData(uuid);
+                    RebirthData rebirthData = DatabaseManager.getRebirthDataCachedOrAsync(uuid, null);
                     RebirthManager rebirthManager = plugin.getRebirthManager();
                     int maxLevel = rebirthManager.getConfig().getInt("rebirth.rebirth.max-level", 10);
                     int currentLevel = rebirthData.getRebirthLevel();
@@ -177,7 +177,7 @@ public class EnchantMaterialPlaceholder extends PlaceholderExpansion {
             
             case "rebirth_last_time": {
                 try {
-                    RebirthData rebirthData = DatabaseManager.getRebirthData(uuid);
+                    RebirthData rebirthData = DatabaseManager.getRebirthDataCachedOrAsync(uuid, null);
                     long lastTime = rebirthData.getLastRebirthTime();
                     if (lastTime == 0) return "Chưa từng chuyển sinh";
                     SimpleDateFormat sdf = new SimpleDateFormat("dd/MM/yyyy HH:mm:ss");
@@ -190,10 +190,10 @@ public class EnchantMaterialPlaceholder extends PlaceholderExpansion {
             case "rebirth_can_rebirth": {
                 try {
                     if (player.getPlayer() == null) return "false";
-                    RebirthData rebirthData = DatabaseManager.getRebirthData(uuid);
+                    RebirthData rebirthData = DatabaseManager.getRebirthDataCachedOrAsync(uuid, null);
                     RebirthManager rebirthManager = plugin.getRebirthManager();
                     int nextLevel = rebirthData.getRebirthLevel() + 1;
-                    return String.valueOf(rebirthManager.canRebirth(player.getPlayer(), nextLevel));
+                    return String.valueOf(rebirthManager.canRebirthWithDebug(player.getPlayer(), nextLevel));
                 } catch (Exception e) {
                     return "false";
                 }
@@ -201,7 +201,7 @@ public class EnchantMaterialPlaceholder extends PlaceholderExpansion {
             
             case "rebirth_required_level": {
                 try {
-                    RebirthData rebirthData = DatabaseManager.getRebirthData(uuid);
+                    RebirthData rebirthData = DatabaseManager.getRebirthDataCachedOrAsync(uuid, null);
                     RebirthManager rebirthManager = plugin.getRebirthManager();
                     int nextLevel = rebirthData.getRebirthLevel() + 1;
                     String path = "rebirth.rebirth.levels." + nextLevel + ".required-level";
@@ -213,7 +213,7 @@ public class EnchantMaterialPlaceholder extends PlaceholderExpansion {
             
             case "rebirth_required_money": {
                 try {
-                    RebirthData rebirthData = DatabaseManager.getRebirthData(uuid);
+                    RebirthData rebirthData = DatabaseManager.getRebirthDataCachedOrAsync(uuid, null);
                     RebirthManager rebirthManager = plugin.getRebirthManager();
                     int nextLevel = rebirthData.getRebirthLevel() + 1;
                     String path = "rebirth.rebirth.levels." + nextLevel + ".required-money";
@@ -226,7 +226,7 @@ public class EnchantMaterialPlaceholder extends PlaceholderExpansion {
             
             case "rebirth_success_rate": {
                 try {
-                    RebirthData rebirthData = DatabaseManager.getRebirthData(uuid);
+                    RebirthData rebirthData = DatabaseManager.getRebirthDataCachedOrAsync(uuid, null);
                     RebirthManager rebirthManager = plugin.getRebirthManager();
                     int nextLevel = rebirthData.getRebirthLevel() + 1;
                     String path = "rebirth.rebirth.levels." + nextLevel + ".success-rate";
@@ -239,7 +239,7 @@ public class EnchantMaterialPlaceholder extends PlaceholderExpansion {
             
             case "rebirth_progress": {
                 try {
-                    RebirthData rebirthData = DatabaseManager.getRebirthData(uuid);
+                    RebirthData rebirthData = DatabaseManager.getRebirthDataCachedOrAsync(uuid, null);
                     RebirthManager rebirthManager = plugin.getRebirthManager();
                     int maxLevel = rebirthManager.getConfig().getInt("rebirth.rebirth.max-level", 10);
                     int currentLevel = rebirthData.getRebirthLevel();
@@ -251,7 +251,7 @@ public class EnchantMaterialPlaceholder extends PlaceholderExpansion {
             
             case "rebirth_progress_percent": {
                 try {
-                    RebirthData rebirthData = DatabaseManager.getRebirthData(uuid);
+                    RebirthData rebirthData = DatabaseManager.getRebirthDataCachedOrAsync(uuid, null);
                     RebirthManager rebirthManager = plugin.getRebirthManager();
                     int maxLevel = rebirthManager.getConfig().getInt("rebirth.rebirth.max-level", 10);
                     int currentLevel = rebirthData.getRebirthLevel();
@@ -264,7 +264,7 @@ public class EnchantMaterialPlaceholder extends PlaceholderExpansion {
             
             case "rebirth_progress_bar": {
                 try {
-                    RebirthData rebirthData = DatabaseManager.getRebirthData(uuid);
+                    RebirthData rebirthData = DatabaseManager.getRebirthDataCachedOrAsync(uuid, null);
                     RebirthManager rebirthManager = plugin.getRebirthManager();
                     int maxLevel = rebirthManager.getConfig().getInt("rebirth.rebirth.max-level", 10);
                     int currentLevel = rebirthData.getRebirthLevel();

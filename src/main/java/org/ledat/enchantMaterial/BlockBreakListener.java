@@ -484,37 +484,52 @@ public class BlockBreakListener implements Listener {
     // === Level/Points helpers giữ nguyên, chỉ bỏ block sync nếu có thể ===
 
     private void setPoints(Player player, double points) {
-        try {
-            // Ưu tiên cache nếu có
-            PlayerData pd = DatabaseManager.getCached(player.getUniqueId());
-            if (pd == null) {
-                pd = DatabaseManager.getPlayerDataAsync(player.getUniqueId()).get();
-            }
-            pd.setPoints(points);
-            DatabaseManager.savePlayerDataAsync(pd);
-        } catch (Exception e) {
-            e.printStackTrace();
-            player.sendMessage("Có lỗi khi lưu điểm của bạn. Vui lòng thử lại sau.");
+        UUID uuid = player.getUniqueId();
+        PlayerData cached = DatabaseManager.getCached(uuid);
+        if (cached != null) {
+            cached.setPoints(points);
+            DatabaseManager.savePlayerDataAsync(cached);
+            return;
         }
+
+        DatabaseManager.getPlayerDataCachedOrAsync(uuid, data -> {
+            if (data == null) {
+                return;
+            }
+            data.setPoints(points);
+            DatabaseManager.savePlayerDataAsync(data);
+        });
+        plugin.getLogger().finer("Points cache miss trong BlockBreak cho " + player.getName());
     }
 
     private int getCurrentLevel(Player player) {
-        try {
-            PlayerData pd = DatabaseManager.getCached(player.getUniqueId());
-            if (pd != null) return pd.getLevel();
-            return DatabaseManager.getPlayerDataAsync(player.getUniqueId()).get().getLevel();
-        } catch (Exception e) {
-            return 0;
+        UUID uuid = player.getUniqueId();
+        PlayerData pd = DatabaseManager.getCached(uuid);
+        if (pd != null) {
+            return pd.getLevel();
         }
+        DatabaseManager.getPlayerDataCachedOrAsync(uuid, null);
+        plugin.getLogger().finer("Level cache miss trong BlockBreak cho " + player.getName());
+        return 1;
     }
 
     private void setPlayerLevel(Player player, int newLevel) {
-        try {
-            PlayerData pd = DatabaseManager.getCached(player.getUniqueId());
-            if (pd == null) pd = DatabaseManager.getPlayerDataAsync(player.getUniqueId()).get();
+        UUID uuid = player.getUniqueId();
+        PlayerData pd = DatabaseManager.getCached(uuid);
+        if (pd != null) {
             pd.setLevel(newLevel);
             DatabaseManager.savePlayerDataAsync(pd);
-        } catch (Exception ignored) {}
+            return;
+        }
+
+        DatabaseManager.getPlayerDataCachedOrAsync(uuid, data -> {
+            if (data == null) {
+                return;
+            }
+            data.setLevel(newLevel);
+            DatabaseManager.savePlayerDataAsync(data);
+        });
+        plugin.getLogger().finer("Level cache miss (set) trong BlockBreak cho " + player.getName());
     }
 
     private void checkLevelUp(Player player, double points) {

@@ -67,61 +67,60 @@ public class RebirthManager {
 
 
     public boolean canRebirth(Player player, int targetLevel) {
-        try {
-            RebirthData rebirthData = DatabaseManager.getRebirthData(player.getUniqueId());
+        UUID uuid = player.getUniqueId();
+        boolean playerReady = DatabaseManager.getCached(uuid) != null;
+        boolean rebirthReady = DatabaseManager.getCachedRebirthData(uuid) != null;
 
-            // Kiểm tra level chuyển sinh hiện tại
-            if (rebirthData.getRebirthLevel() + 1 != targetLevel) {
-                return false;
-            }
+        PlayerData playerData = DatabaseManager.getPlayerDataCachedOrAsync(uuid, null);
+        RebirthData rebirthData = DatabaseManager.getRebirthDataCachedOrAsync(uuid, null);
 
-            String path = "rebirth.rebirth.levels." + targetLevel;
-
-            // ✅ Sử dụng async data với timeout
-            CompletableFuture<PlayerData> playerDataFuture = DatabaseManager.getPlayerDataAsync(player.getUniqueId());
-            PlayerData playerData;
-
-            try {
-                playerData = playerDataFuture.get(3, TimeUnit.SECONDS); // 3 giây timeout
-            } catch (TimeoutException e) {
-                plugin.getLogger().warning("Timeout khi load PlayerData cho " + player.getName());
-                return false;
-            }
-
-            // Kiểm tra EnchantMaterial Level
-            int requiredLevel = rebirthConfig.getInt(path + ".required-level", 0);
-            if (playerData.getLevel() < requiredLevel) {
-                player.sendMessage("§cLevel không đủ! Hiện tại: " + playerData.getLevel() + ", Yêu cầu: " + requiredLevel);
-                return false;
-            }
-
-            // Kiểm tra tiền
-            double requiredMoney = rebirthConfig.getDouble(path + ".required-money", 0);
-            if (economy != null && economy.getBalance(player) < requiredMoney) {
-                player.sendMessage("§cTiền không đủ! Hiện tại: " + economy.getBalance(player) + ", Yêu cầu: " + requiredMoney);
-                return false;
-            }
-
-            // ✅ SửA: Kiểm tra items với Map thay vì Material, int, String
-            if (rebirthConfig.contains(path + ".required-items")) {
-                List<Map<?, ?>> requiredItems = rebirthConfig.getMapList(path + ".required-items");
-                for (Map<?, ?> itemMap : requiredItems) {
-                    if (!hasRequiredItem(player, itemMap)) {
-                        String material = (String) itemMap.get("material");
-                        int amount = (Integer) itemMap.get("amount");
-                        player.sendMessage("§cThiếu vật phẩm: " + amount + "x " + material);
-                        return false;
-                    }
-                }
-            }
-
-            return true;
-
-        } catch (Exception e) {
-            plugin.getLogger().severe("Lỗi nghiêm trọng trong canRebirth cho " + player.getName() + ": " + e.getMessage());
-            e.printStackTrace();
+        if (!playerReady || !rebirthReady) {
+            plugin.getLogger().finer("[Rebirth] Cache miss cho " + player.getName() + " khi kiểm tra canRebirth");
+            player.sendMessage("§e⏳ Dữ liệu chuyển sinh đang tải, vui lòng thử lại sau!");
             return false;
         }
+
+        return evaluateRebirthConditions(player, targetLevel, playerData, rebirthData, false);
+    }
+
+    private boolean evaluateRebirthConditions(Player player, int targetLevel, PlayerData playerData, RebirthData rebirthData, boolean debug) {
+        String path = "rebirth.rebirth.levels." + targetLevel;
+
+        if (rebirthData.getRebirthLevel() + 1 != targetLevel) {
+            return false;
+        }
+
+        int requiredLevel = rebirthConfig.getInt(path + ".required-level", 0);
+        if (playerData.getLevel() < requiredLevel) {
+            if (!debug) {
+                player.sendMessage("§cLevel không đủ! Hiện tại: " + playerData.getLevel() + ", Yêu cầu: " + requiredLevel);
+            }
+            return false;
+        }
+
+        double requiredMoney = rebirthConfig.getDouble(path + ".required-money", 0);
+        if (economy != null && economy.getBalance(player) < requiredMoney) {
+            if (!debug) {
+                player.sendMessage("§cTiền không đủ! Hiện tại: " + economy.getBalance(player) + ", Yêu cầu: " + requiredMoney);
+            }
+            return false;
+        }
+
+        if (rebirthConfig.contains(path + ".required-items")) {
+            List<Map<?, ?>> requiredItems = rebirthConfig.getMapList(path + ".required-items");
+            for (Map<?, ?> itemMap : requiredItems) {
+                if (!hasRequiredItem(player, itemMap)) {
+                    if (!debug) {
+                        String material = (String) itemMap.get("material");
+                        int amount = (Integer) itemMap.getOrDefault("amount", 0);
+                        player.sendMessage("§cThiếu vật phẩm: " + amount + "x " + material);
+                    }
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     // Phương thức kiểm tra item có custom name
@@ -217,7 +216,13 @@ public class RebirthManager {
                 consumeRequirements(player, targetLevel);
 
                 // Cập nhật level chuyển sinh
-                RebirthData rebirthData = DatabaseManager.getRebirthData(player.getUniqueId());
+                UUID uuid = player.getUniqueId();
+                boolean rebirthReady = DatabaseManager.getCachedRebirthData(uuid) != null;
+                RebirthData rebirthData = DatabaseManager.getRebirthDataCachedOrAsync(uuid, null);
+                if (!rebirthReady) {
+                    plugin.getLogger().finer("[Rebirth] Cache miss khi cập nhật thành công cho " + player.getName());
+                    return false;
+                }
                 rebirthData.setRebirthLevel(targetLevel);
                 rebirthData.setLastRebirthTime(System.currentTimeMillis());
                 DatabaseManager.saveRebirthData(rebirthData);
@@ -374,7 +379,6 @@ public class RebirthManager {
 
     private void applyFailurePenalties(Player player, int targetLevel) {
         try {
-            // SỬA: Đường dẫn config đúng
             String path = "rebirth.rebirth.levels." + targetLevel;
 
             // Mất 25% tiền
@@ -388,11 +392,17 @@ public class RebirthManager {
             }
 
             // Mất 10 cấp độ EnchantMaterial
-            PlayerData playerData = DatabaseManager.getPlayerData(player.getUniqueId().toString());
+            UUID uuid = player.getUniqueId();
+            boolean ready = DatabaseManager.getCached(uuid) != null;
+            PlayerData playerData = DatabaseManager.getPlayerDataCachedOrAsync(uuid, null);
+            if (!ready) {
+                plugin.getLogger().finer("[Rebirth] Cache miss khi áp dụng hình phạt cho " + player.getName());
+                return;
+            }
             int currentLevel = playerData.getLevel();
             int newLevel = Math.max(0, currentLevel - 10); // Không cho phép level âm
             playerData.setLevel(newLevel);
-            DatabaseManager.savePlayerData(playerData);
+            DatabaseManager.savePlayerDataAsync(playerData);
 
             if (currentLevel > newLevel) {
                 player.sendMessage("§c✗ Bạn đã mất " + (currentLevel - newLevel) + " cấp độ EnchantMaterial do chuyển sinh thất bại!");
@@ -401,19 +411,16 @@ public class RebirthManager {
             // Mất ngẫu nhiên 1 vật phẩm yêu cầu
             List<Map<?, ?>> requiredItems = rebirthConfig.getMapList(path + ".required-items");
             if (!requiredItems.isEmpty()) {
-                // Chọn ngẫu nhiên 1 item từ danh sách yêu cầu
                 Map<?, ?> randomItemMap = requiredItems.get(ThreadLocalRandom.current().nextInt(requiredItems.size()));
                 String material = (String) randomItemMap.get("material");
                 int amount = (Integer) randomItemMap.get("amount");
 
                 ItemStack itemToRemove = new ItemStack(org.bukkit.Material.valueOf(material), amount);
 
-                // Kiểm tra xem player có item này không
                 if (player.getInventory().containsAtLeast(itemToRemove, amount)) {
                     player.getInventory().removeItem(itemToRemove);
                     player.sendMessage("§c✗ Bạn đã mất " + amount + "x " + material + " do chuyển sinh thất bại!");
                 } else {
-                    // Nếu không có đủ item, lấy tất cả những gì có
                     ItemStack[] contents = player.getInventory().getContents();
                     for (int i = 0; i < contents.length; i++) {
                         ItemStack item = contents[i];
@@ -445,44 +452,18 @@ public class RebirthManager {
     }
 
     public boolean canRebirthWithDebug(Player player, int targetLevel) {
-        try {
-            String path = "rebirth.rebirth.levels." + targetLevel;
+        UUID uuid = player.getUniqueId();
+        boolean playerReady = DatabaseManager.getCached(uuid) != null;
+        boolean rebirthReady = DatabaseManager.getCachedRebirthData(uuid) != null;
 
-            RebirthData rebirthData = DatabaseManager.getRebirthData(player.getUniqueId());
-            PlayerData playerData = DatabaseManager.getPlayerData(player.getUniqueId().toString());
+        PlayerData playerData = DatabaseManager.getPlayerDataCachedOrAsync(uuid, null);
+        RebirthData rebirthData = DatabaseManager.getRebirthDataCachedOrAsync(uuid, null);
 
-            // Kiểm tra level chuyển sinh hiện tại
-            if (rebirthData.getRebirthLevel() + 1 != targetLevel) {
-                return false;
-            }
-
-            // Kiểm tra EnchantMaterial Level
-            int requiredLevel = rebirthConfig.getInt(path + ".required-level", 0);
-            int currentLevel = playerData.getLevel();
-            if (currentLevel < requiredLevel) {
-                return false;
-            }
-
-            // Kiểm tra tiền
-            double requiredMoney = rebirthConfig.getDouble(path + ".required-money", 0);
-            double currentMoney = economy != null ? economy.getBalance(player) : 0;
-            if (economy != null && currentMoney < requiredMoney) {
-                return false;
-            }
-
-            // Kiểm tra items
-            List<Map<?, ?>> requiredItems = rebirthConfig.getMapList(path + ".required-items");
-
-            for (Map<?, ?> itemMap : requiredItems) {
-                if (!hasRequiredItem(player, itemMap)) {
-                    return false;
-                }
-            }
-
-            return true;
-        } catch (Exception e) {
-            plugin.getLogger().warning("Lỗi kiểm tra điều kiện chuyển sinh: " + e.getMessage());
+        if (!playerReady || !rebirthReady) {
+            plugin.getLogger().finer("[Rebirth] Cache miss trong canRebirthWithDebug cho " + player.getName());
             return false;
         }
+
+        return evaluateRebirthConditions(player, targetLevel, playerData, rebirthData, true);
     }
 }
